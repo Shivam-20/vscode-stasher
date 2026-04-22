@@ -1,10 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- Box / stash container -->
-  <path d="M3 9l1.5-5h15L21 9"/>
-  <rect x="3" y="9" width="18" height="11" rx="1.5"/>
-  <!-- Horizontal divider (lid line) -->
-  <line x1="3" y1="13" x2="21" y2="13"/>
-  <!-- Down arrow (pop / retrieve) -->
-  <polyline points="9 16 12 19 15 16"/>
-  <line x1="12" y1="13" x2="12" y2="19"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+  <!-- Handle at top of lid -->
+  <rect x="9.5" y="0.75" width="5" height="2.5" rx="1.25"/>
+  <!-- Lid (filled, overlaps body top to seal it visually) -->
+  <rect x="2" y="2.5" width="20" height="7" rx="1.5"/>
+  <!-- Body outline (open container beneath lid) -->
+  <rect x="3" y="9" width="18" height="14" rx="1.5"
+        fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <!-- Stash entry bar 1: widest = most recent stash -->
+  <rect x="7" y="13.5" width="10" height="1.75" rx="0.875"/>
+  <!-- Stash entry bar 2: narrower = older stash -->
+  <rect x="7" y="18"   width="7"  height="1.75" rx="0.875"/>
 </svg>

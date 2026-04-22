@@ -1,0 +1,19 @@
+dist/
+out/
+node_modules/
+.vscode-test/
+coverage/
+.nyc_output/
+*.vsix
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+
+# Temporary editor/system files
+*.tmp
+*.swp

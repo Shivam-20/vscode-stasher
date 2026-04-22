@@ -2,7 +2,7 @@
   "name": "stasher",
   "displayName": "Stasher",
   "description": "Simple, visual git stash management in the Activity Bar — create, browse, apply, pop, drop, diff and branch stashes without touching a terminal.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",
@@ -337,12 +337,18 @@
     "vscode:prepublish": "node esbuild.js --production",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "package:vsix": "vsce package",
+    "publish:extension": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "2.24.0",
     "esbuild": "^0.21.0",
     "typescript": "^5.4.0"
+  },
+  "overrides": {
+    "cheerio": "1.0.0-rc.12"
   }
 }

@@ -19,6 +19,12 @@ import {
   deleteFilesFromStash,
   mergeStashes,
   exportStashAsPatch,
+  stashFile,
+  getStashStats,
+  searchInStashes,
+  duplicateStash,
+  importPatchAsStash,
+  getStashDiffVsWorkingTree,
   dispose as disposeGit,
 } from './gitHelper';
 import { StashTreeDataProvider, StashTreeItem, StashFileTreeItem } from './stashProvider';
@@ -27,10 +33,23 @@ import { showFileDiff } from './diffViewer';
 import { withConflictHandling } from './conflictHelper';
 import { partialStashCommand } from './partialStash';
 import { openHunkPicker, disposeHunkPicker } from './hunkPicker';
+import { StashPeekProvider, peekStashFile } from './peekProvider';
+import {
+  getStashNote, setStashNote,
+  isStashPinned, pinStash, unpinStash,
+  isAutoRestore, setAutoRestore, getAutoRestoreHashes,
+  getStashLabel, setStashLabel, LABEL_OPTIONS,
+  type StashLabel,
+} from './stashNotes';
+import { logger } from './logger';
+import { openTimeline, refreshTimeline } from './timelineView';
+import { StashBranchGroupItem } from './stashProvider';
 
 // ─── Activation ───────────────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  logger.init();
+  logger.info('Stasher activating');
   // 1. Boot the git integration layer
   await initGitApi(context);
 
@@ -95,6 +114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('stasher.partialStash', async () => {
       await partialStashCommand();
       provider.refresh();
+      workingProvider.refresh();
     }),
 
     // ── Refresh ───────────────────────────────────────────────────────────────
@@ -227,11 +247,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
 
-        const success = stashBranch(branchName.trim(), item.stashEntry.ref);
-        if (success) {
+        try {
+          stashBranch(branchName.trim(), item.stashEntry.ref);
           provider.refresh();
           void vscode.window.showInformationMessage(
             `Stasher: Switched to new branch '${branchName}' with stash applied.`
+          );
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `Stasher: Create branch failed — ${err instanceof Error ? err.message : String(err)}`
           );
         }
       }
@@ -389,37 +413,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return; // cancelled
           }
 
-          const api = getAPI();
-          const repo = getRepository();
-          if (!api || !repo) {
-            void vscode.window.showErrorMessage('Stasher: No git repository found.');
-            return;
-          }
-
-          const { spawnSync } = await import('child_process');
-          const args: string[] = ['stash', 'push', '--include-untracked'];
-          if (message.trim()) {
-            args.push('-m', message.trim());
-          }
-          args.push('--', filePath);
-
-          const result = spawnSync(api.git.path, args, {
-            cwd: repo.rootUri.fsPath,
-            encoding: 'utf8',
-          });
-
-          if (result.status !== 0) {
+          try {
+            stashFile(filePath, message || undefined);
+            provider.refresh();
+            workingProvider.refresh();
+            void vscode.window.showInformationMessage('Stasher: New stash created with this file.');
+          } catch (err) {
             void vscode.window.showErrorMessage(
-              `Stasher: Failed to create stash — ${
-                result.stderr?.trim() || 'Unknown error'
-              }`
+              `Stasher: Failed to create stash — ${err instanceof Error ? err.message : String(err)}`
             );
-            return;
           }
-
-          provider.refresh();
-          workingProvider.refresh();
-          void vscode.window.showInformationMessage('Stasher: New stash created with this file.');
         }
       }
     )
@@ -491,8 +494,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('stasher.unstashThisFile', async (item: StashFileTreeItem) => {
       if (!(item instanceof StashFileTreeItem)) { return; }
-      const stashes = await listStashes();
-      const entry = stashes.find((s) => s.ref === item.stashRef);
+      const entry = listStashes().find((s) => s.ref === item.stashRef);
       if (!entry) {
         void vscode.window.showErrorMessage('Stasher: Could not locate stash entry.');
         return;
@@ -522,8 +524,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage('Stasher: No files found in this stash.');
         return;
       }
+      const repoRoot = getRepository()?.rootUri.fsPath ?? '';
       const picks = await vscode.window.showQuickPick(
-        allFiles.map((p) => ({ label: path.basename(p), description: p, picked: false })),
+        allFiles.map((p) => ({
+          label: path.relative(repoRoot, p) || path.basename(p),
+          description: p,
+          picked: false,
+        })),
         { canPickMany: true, placeHolder: 'Select files to restore from stash' }
       );
       if (!picks || picks.length === 0) { return; }
@@ -549,8 +556,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Delete'
       );
       if (confirm !== 'Delete') { return; }
-      const stashes = await listStashes();
-      const entry = stashes.find((s) => s.ref === item.stashRef);
+      const entry = listStashes().find((s) => s.ref === item.stashRef);
       if (!entry) {
         void vscode.window.showErrorMessage('Stasher: Could not locate stash entry.');
         return;
@@ -572,8 +578,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('stasher.mergeStash', async (item: StashTreeItem) => {
       if (!(item instanceof StashTreeItem)) { return; }
-      const stashes = await listStashes();
-      const others = stashes.filter((s) => s.ref !== item.stashEntry.ref);
+      const others = listStashes().filter((s) => s.ref !== item.stashEntry.ref);
       if (others.length === 0) {
         void vscode.window.showInformationMessage('Stasher: No other stashes to merge with.');
         return;
@@ -600,8 +605,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('stasher.compareStash', async (item: StashTreeItem) => {
       if (!(item instanceof StashTreeItem)) { return; }
-      const stashes = await listStashes();
-      const others = stashes.filter((s) => s.ref !== item.stashEntry.ref);
+      const others = listStashes().filter((s) => s.ref !== item.stashEntry.ref);
       if (others.length === 0) {
         void vscode.window.showInformationMessage('Stasher: No other stashes to compare with.');
         return;
@@ -613,10 +617,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!pick) { return; }
 
       // Gather union of files from both stashes
-      const [group1, group2] = await Promise.all([
-        getStashFiles(item.stashEntry.ref),
-        getStashFiles(pick.stash.ref),
-      ]);
+      let group1: Awaited<ReturnType<typeof getStashFiles>>;
+      let group2: Awaited<ReturnType<typeof getStashFiles>>;
+      try {
+        [group1, group2] = await Promise.all([
+          getStashFiles(item.stashEntry.ref),
+          getStashFiles(pick.stash.ref),
+        ]);
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Could not read stash files — ${err instanceof Error ? err.message : String(err)}`
+        );
+        return;
+      }
       const relPaths = new Set<string>();
       const repoRoot = getRepository()?.rootUri.fsPath ?? '';
       for (const f of [...group1.tracked, ...group1.untracked, ...group2.tracked, ...group2.untracked]) {
@@ -659,6 +672,441 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Show Stash Contents (file list QuickPick; click a file to open its diff)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.showStashDetails', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      const api = getAPI();
+      const repoRoot = getRepository()?.rootUri.fsPath ?? '';
+      let tracked: Awaited<ReturnType<typeof getStashFiles>>['tracked'];
+      let untracked: Awaited<ReturnType<typeof getStashFiles>>['untracked'];
+      try {
+        ({ tracked, untracked } = await getStashFiles(item.stashEntry.ref));
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Could not read stash — ${err instanceof Error ? err.message : String(err)}`
+        );
+        return;
+      }
+      const allChanges = [...tracked, ...untracked];
+      if (allChanges.length === 0) {
+        void vscode.window.showInformationMessage(`Stasher: No files in ${item.stashEntry.ref}.`);
+        return;
+      }
+      const picks = allChanges.map((f) => ({
+        label: path.basename(f.uri.fsPath),
+        description: path.relative(repoRoot, f.uri.fsPath),
+        uri: f.uri,
+      }));
+      const selected = await vscode.window.showQuickPick(picks, {
+        title: `${item.stashEntry.ref}: ${item.stashEntry.message} (${allChanges.length} file${allChanges.length === 1 ? '' : 's'})`,
+        placeHolder: 'Select a file to view its diff — Escape to close',
+      });
+      if (!selected || !api) { return; }
+      const stashUri = api.toGitUri(selected.uri, item.stashEntry.ref);
+      const baseUri = api.toGitUri(selected.uri, `${item.stashEntry.ref}^1`);
+      void vscode.commands.executeCommand(
+        'vscode.diff',
+        baseUri,
+        stashUri,
+        `${item.stashEntry.ref}: ${selected.label}`,
+        { preview: true } satisfies vscode.TextDocumentShowOptions
+      );
+    })
+  );
+
+  // ── Filter Stashes (search bar for the Stashes panel) ────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.filterStashes', async () => {
+      const q = await vscode.window.showInputBox({
+        title: 'Filter Stashes',
+        placeHolder: 'Search by message, branch, or ref… (leave empty to clear)',
+        value: provider.filterQuery,
+      });
+      if (q === undefined) { return; } // cancelled
+      provider.setFilter(q);
+      void vscode.commands.executeCommand('setContext', 'stasher.hasFilter', provider.hasFilter);
+    })
+  );
+
+  // ── Clear Filter ──────────────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.clearFilter', () => {
+      provider.clearFilter();
+      void vscode.commands.executeCommand('setContext', 'stasher.hasFilter', false);
+    })
+  );
+
+  // ── Stash This File (always creates a NEW stash with just this file) ─────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.stashThisFile', async (item: WorkingFileItem) => {
+      if (!item?.change) { return; }
+      const filePath = item.change.uri.fsPath;
+      const message = await vscode.window.showInputBox({
+        title: 'Stash This File',
+        placeHolder: 'e.g. "WIP: auth changes" — leave empty for default',
+        prompt: 'Optional: name for the new stash',
+      });
+      if (message === undefined) { return; } // cancelled
+      try {
+        stashFile(filePath, message || undefined);
+        provider.refresh();
+        workingProvider.refresh();
+        void vscode.window.showInformationMessage('Stasher: File stashed.');
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Stash file failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
+  // ── NEW: Stash Stats (show line change summary) ──────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.showStashStats', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      let stats;
+      try {
+        stats = getStashStats(item.stashEntry);
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Stats failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+        return;
+      }
+      if (stats.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No file stats found.');
+        return;
+      }
+      const totalAdded = stats.reduce((a, s) => a + s.added, 0);
+      const totalRemoved = stats.reduce((a, s) => a + s.removed, 0);
+      const lines = stats.map((s) => `$(diff-modified) ${s.file}  +${s.added} −${s.removed}`);
+      lines.unshift(`**${item.stashEntry.ref}** — ${stats.length} file(s)  total +${totalAdded} −${totalRemoved}`, '');
+      const panel = vscode.window.createOutputChannel('Stasher Stats');
+      panel.clear();
+      panel.appendLine(lines.join('\n'));
+      panel.show(true);
+      logger.info('showStashStats', { ref: item.stashEntry.ref, files: stats.length });
+    })
+  );
+
+  // ── NEW: Search Inside Stashes ───────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.searchInStashes', async () => {
+      const query = await vscode.window.showInputBox({
+        title: 'Search Inside Stashes',
+        placeHolder: 'e.g. "authService" or "TODO"',
+        prompt: 'Search text across all stash contents (case-insensitive)',
+      });
+      if (!query?.trim()) { return; }
+      logger.info('searchInStashes', { query });
+      const matches = searchInStashes(query.trim());
+      if (matches.length === 0) {
+        void vscode.window.showInformationMessage(`Stasher: No matches found for "${query}".`);
+        return;
+      }
+      const picks = matches.map((m) => ({
+        label: `$(search) ${m.file}:${m.line}`,
+        description: `${m.stashRef} — ${m.stashMessage}`,
+        detail: m.text.trim(),
+        match: m,
+      }));
+      const selected = await vscode.window.showQuickPick(picks, {
+        title: `Search: "${query}" — ${matches.length} match(es)`,
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      if (!selected) { return; }
+      const repoRoot = getRepository()?.rootUri.fsPath ?? '';
+      const absPath = path.join(repoRoot, selected.match.file);
+      const api = getAPI();
+      if (!api) { return; }
+      const stashUri = api.toGitUri(vscode.Uri.file(absPath), selected.match.stashRef);
+      const baseUri  = api.toGitUri(vscode.Uri.file(absPath), `${selected.match.stashRef}^1`);
+      void vscode.commands.executeCommand(
+        'vscode.diff', baseUri, stashUri,
+        `${selected.match.stashRef}: ${selected.match.file}`,
+        { preview: true }
+      );
+    })
+  );
+
+  // ── NEW: Duplicate Stash ─────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.duplicateStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      try {
+        await withConflictHandling(() => duplicateStash(item.stashEntry));
+        provider.refresh();
+        void vscode.window.showInformationMessage(
+          `Stasher: Duplicated “${item.stashEntry.ref}”.`
+        );
+        logger.info('duplicateStash', { ref: item.stashEntry.ref });
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Duplicate failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
+  // ── NEW: Import .patch as Stash ──────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.importPatch', async () => {
+      const uris = await vscode.window.showOpenDialog({
+        title: 'Import Patch as Stash',
+        filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+        canSelectMany: false,
+      });
+      if (!uris || uris.length === 0) { return; }
+      const patchPath = uris[0].fsPath;
+      const message = await vscode.window.showInputBox({
+        title: 'Import Patch — Stash Name',
+        placeHolder: 'e.g. "imported: auth patch" — leave empty for default',
+        prompt: 'Optional: name for the new stash',
+      });
+      if (message === undefined) { return; }
+      try {
+        await importPatchAsStash(patchPath, message || undefined);
+        provider.refresh();
+        workingProvider.refresh();
+        void vscode.window.showInformationMessage(
+          `Stasher: Patch imported as stash from ${path.basename(patchPath)}.`
+        );
+        logger.info('importPatch', { patchPath });
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Import patch failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
+  // ── NEW: Peek File Content ───────────────────────────────────────────────
+  const peekProvider = new StashPeekProvider();
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(StashPeekProvider.scheme, peekProvider)
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.peekFile', async (item: StashFileTreeItem) => {
+      if (!(item instanceof StashFileTreeItem)) { return; }
+      const repo = getRepository();
+      if (!repo) { return; }
+      await peekStashFile(item, repo.rootUri.fsPath);
+      logger.info('peekFile', { stashRef: item.stashRef, file: item.absolutePath });
+    })
+  );
+
+  // ── NEW: Pin / Unpin Stash ───────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.pinStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      await pinStash(context, item.stashEntry.hash);
+      provider.refresh();
+      logger.info('pinStash', { ref: item.stashEntry.ref });
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.unpinStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      await unpinStash(context, item.stashEntry.hash);
+      provider.refresh();
+      logger.info('unpinStash', { ref: item.stashEntry.ref });
+    })
+  );
+
+  // ── NEW: Edit Stash Note ─────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.editStashNote', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      const current = getStashNote(context, item.stashEntry.hash);
+      const note = await vscode.window.showInputBox({
+        title: 'Edit Stash Note',
+        value: current ?? '',
+        placeHolder: 'e.g. "blocked on ticket #123" — leave empty to clear',
+        prompt: 'Enter a note for this stash (stored locally, not in git)',
+      });
+      if (note === undefined) { return; }
+      await setStashNote(context, item.stashEntry.hash, note);
+      provider.refresh();
+      logger.info('editStashNote', { ref: item.stashEntry.ref });
+    })
+  );
+
+  // ── NEW: Toggle Auto-Restore at Startup ──────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.toggleAutoRestore', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      const current = isAutoRestore(context, item.stashEntry.hash);
+      await setAutoRestore(context, item.stashEntry.hash, !current);
+      void vscode.window.showInformationMessage(
+        current
+          ? `Stasher: Auto-restore disabled for “${item.stashEntry.ref}”.`
+          : `Stasher: “${item.stashEntry.ref}” will be applied on next startup.`
+      );
+      logger.info('toggleAutoRestore', { ref: item.stashEntry.ref, enabled: !current });
+    })
+  );
+
+  // ── NEW: Diff Stash vs Working Tree ──────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.diffVsWorkingTree', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      let changedFiles: string[];
+      try {
+        changedFiles = getStashDiffVsWorkingTree(item.stashEntry);
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Diff failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+        return;
+      }
+      if (changedFiles.length === 0) {
+        void vscode.window.showInformationMessage(
+          'Stasher: No differences between this stash and your working tree.'
+        );
+        return;
+      }
+      const repoRoot = getRepository()?.rootUri.fsPath ?? '';
+      const api = getAPI();
+      if (!api) { return; }
+      const pick = await vscode.window.showQuickPick(
+        changedFiles.map((f) => ({ label: path.basename(f), description: f, relPath: f })),
+        { title: `Diff vs Working Tree — ${changedFiles.length} file(s) differ`, placeHolder: 'Select file to diff' }
+      );
+      if (!pick) { return; }
+      const absPath = path.join(repoRoot, pick.relPath);
+      const stashUri   = api.toGitUri(vscode.Uri.file(absPath), item.stashEntry.ref);
+      const workingUri = vscode.Uri.file(absPath);
+      void vscode.commands.executeCommand(
+        'vscode.diff', stashUri, workingUri,
+        `${item.stashEntry.ref} ↔ Working: ${pick.label}`,
+        { preview: true }
+      );
+      logger.info('diffVsWorkingTree', { ref: item.stashEntry.ref, file: pick.relPath });
+    })
+  );
+
+  // ── NEW: Stash & Switch Branch ───────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.stashAndSwitch', async () => {
+      const repo = getRepository();
+      if (!repo) {
+        void vscode.window.showErrorMessage('Stasher: No git repository found.');
+        return;
+      }
+      const branches = repo.state.refs
+        .filter((r) => r.type === 0 /* Branch */ && r.name)
+        .map((r) => ({ label: r.name!, description: r.commit?.substring(0, 7) }));
+      if (branches.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No branches found.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(branches, {
+        title: 'Stash & Switch Branch',
+        placeHolder: 'Select branch to switch to (changes will be stashed first)',
+      });
+      if (!picked) { return; }
+      const message = await vscode.window.showInputBox({
+        title: 'Stash & Switch — Stash Name',
+        placeHolder: 'e.g. "WIP before switching" — leave empty for default',
+      });
+      if (message === undefined) { return; }
+      try {
+        await createStash(message || undefined, true);
+        await repo.checkout(picked.label);
+        provider.refresh();
+        workingProvider.refresh();
+        void vscode.window.showInformationMessage(
+          `Stasher: Stashed changes and switched to “${picked.label}”.`
+        );
+        logger.info('stashAndSwitch', { branch: picked.label });
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Stash & switch failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
+  // ── Auto-restore: apply pinned auto-restore stashes on activation ────────
+  const autoRestoreHashes = getAutoRestoreHashes(context);
+  if (autoRestoreHashes.size > 0) {
+    const stashes = listStashes();
+    const toRestore = stashes.filter((s) => autoRestoreHashes.has(s.hash));
+    for (const stash of toRestore) {
+      const answer = await vscode.window.showInformationMessage(
+        `Stasher: Auto-restore — apply stash “${stash.message}”?`,
+        'Apply', 'Skip'
+      );
+      if (answer === 'Apply') {
+        try {
+          await withConflictHandling(() => applyStash(stash.index));
+          provider.refresh();
+          workingProvider.refresh();
+          logger.info('autoRestore applied', { ref: stash.ref });
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `Stasher: Auto-restore failed — ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+    }
+  }
+
+  // ── NEW: Set Stash Label ────────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.setStashLabel', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      const current = getStashLabel(context, item.stashEntry.hash);
+      const picks: vscode.QuickPickItem[] = [
+        { label: '$(close) Clear label', description: 'none' },
+        ...LABEL_OPTIONS,
+      ];
+      const pick = await vscode.window.showQuickPick(picks, {
+        title: `Label stash: ${item.stashEntry.ref}`,
+        placeHolder: current ? `Current: ${current}` : 'Choose a colour label',
+      });
+      if (!pick) { return; }
+      const newLabel = pick.description === 'none' ? undefined : pick.description as StashLabel;
+      await setStashLabel(context, item.stashEntry.hash, newLabel);
+      provider.refresh();
+      refreshTimeline(context);
+      logger.info('setStashLabel', { ref: item.stashEntry.ref, label: newLabel });
+    })
+  );
+
+  // ── NEW: Open Stash Timeline ────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.openTimeline', () => {
+      openTimeline(context);
+    })
+  );
+
+  // ── NEW: Toggle Group By Branch ─────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.toggleGroupByBranch', async () => {
+      const cfg = vscode.workspace.getConfiguration('stasher');
+      const current = cfg.get<boolean>('groupByBranch', false);
+      await cfg.update('groupByBranch', !current, vscode.ConfigurationTarget.Workspace);
+      provider.refresh();
+    })
+  );
+
+  // ── NEW: Toggle Group Files by Directory ────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.toggleGroupByDir', async () => {
+      const cfg = vscode.workspace.getConfiguration('stasher');
+      const current = cfg.get<boolean>('groupFilesByDirectory', false);
+      await cfg.update('groupFilesByDirectory', !current, vscode.ConfigurationTarget.Workspace);
+      provider.refresh();
+    })
+  );
+
+  // Hook timeline refresh into every stash refresh
+  const _origRefresh = provider.refresh.bind(provider);
+  provider.refresh = () => { _origRefresh(); refreshTimeline(context); };
+
   // 5. Initial refresh once git is ready
   provider.refresh();
   workingProvider.refresh();
@@ -669,4 +1117,5 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 export function deactivate(): void {
   disposeHunkPicker();
   disposeGit();
+  logger.dispose();
 }

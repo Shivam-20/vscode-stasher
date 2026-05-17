@@ -54,12 +54,14 @@ export function openHunkPicker(
     return;
   }
 
-  // Write to a uniquely-named temp file
+  // Write to a uniquely-named temp file (random suffix prevents collisions
+  // when the same stash+file is opened in the hunk picker more than once).
   const basename = path.basename(item.absolutePath);
   const safeRef = item.stashRef.replace(/[^a-z0-9]/gi, '_');
+  const uid = Math.random().toString(16).slice(2, 8);
   const tempPath = path.join(
     os.tmpdir(),
-    `stasher_${safeRef}_${basename}`
+    `stasher_${safeRef}_${uid}_${basename}`
   );
 
   try {

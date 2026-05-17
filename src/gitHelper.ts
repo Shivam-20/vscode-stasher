@@ -15,6 +15,25 @@ export interface StashEntry {
   branch: string;
   /** Full git stash subject line, e.g. "WIP on main: add feature" */
   message: string;
+  /** ISO-8601 date string when this stash was created */
+  date: string;
+}
+
+export interface StashStat {
+  /** Relative file path */
+  file: string;
+  /** Lines added in this stash */
+  added: number;
+  /** Lines removed in this stash */
+  removed: number;
+}
+
+export interface SearchMatch {
+  stashRef: string;
+  stashMessage: string;
+  file: string;
+  line: number;
+  text: string;
 }
 
 export interface StashFileGroup {
@@ -148,7 +167,7 @@ export function listStashes(): StashEntry[] {
 
   const result = spawnSync(
     gitPath,
-    ['stash', 'list', '--format=%gd|%H|%gs'],
+    ['stash', 'list', '--format=%gd|%H|%gs|%ai'],
     { cwd: repoRoot, encoding: 'utf8' }
   );
 
@@ -163,14 +182,16 @@ export function listStashes(): StashEntry[] {
     .map((line, i) => {
       const pipeIndex1 = line.indexOf('|');
       const pipeIndex2 = line.indexOf('|', pipeIndex1 + 1);
+      const pipeIndex3 = line.indexOf('|', pipeIndex2 + 1);
       const ref = line.substring(0, pipeIndex1);
       const hash = line.substring(pipeIndex1 + 1, pipeIndex2);
-      const subject = line.substring(pipeIndex2 + 1);
+      const subject = line.substring(pipeIndex2 + 1, pipeIndex3);
+      const date = line.substring(pipeIndex3 + 1).trim();
 
       const branchMatch = subject.match(/^(?:WIP on|On) ([^:]+):/);
       const branch = branchMatch?.[1] ?? 'unknown';
 
-      return { index: i, ref, hash, branch, message: subject };
+      return { index: i, ref, hash, branch, message: subject, date };
     });
 }
 
@@ -242,9 +263,9 @@ export async function dropStash(index: number): Promise<void> {
  * Uses `git stash branch` which atomically creates the branch,
  * checks it out, and applies+drops the stash.
  */
-export function stashBranch(branchName: string, stashRef: string): boolean {
+export function stashBranch(branchName: string, stashRef: string): void {
   if (!_api || !_repo) {
-    return false;
+    throw new Error('No repository open');
   }
   const result = spawnSync(
     _api.git.path,
@@ -252,13 +273,8 @@ export function stashBranch(branchName: string, stashRef: string): boolean {
     { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
   );
   if (result.status !== 0) {
-    const errMsg = result.stderr?.trim() || 'Unknown error';
-    void vscode.window.showErrorMessage(
-      `Stasher: Failed to create branch '${branchName}': ${errMsg}`
-    );
-    return false;
+    throw new Error(result.stderr?.trim() || 'Unknown error');
   }
-  return true;
 }
 
 /**
@@ -282,10 +298,19 @@ export async function renameStash(
   await _repo.applyStash(entry.index);
 
   // 2. Re-stash with the new message
-  await _repo.createStash({
-    message: newMessage,
-    includeUntracked: true,
-  });
+  try {
+    await _repo.createStash({
+      message: newMessage,
+      includeUntracked: true,
+    });
+  } catch (err) {
+    throw new Error(
+      `Re-stash failed — your changes are now in the working tree. ` +
+      `Stash them manually to recover. Original error: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
 
   // 3. Drop the OLD stash. After step 2, all indices shifted by 1
   //    because the new stash is now at {0}.
@@ -343,13 +368,25 @@ export async function addToExistingStash(
       { cwd, encoding: 'utf8' }
     );
     if (result.status !== 0) {
-      throw new Error(result.stderr?.trim() || 'git stash push failed');
+      throw new Error(
+        `git stash push failed — your changes are now in the working tree. ` +
+        `Stash them manually to recover. Details: ${result.stderr?.trim() || 'unknown error'}`
+      );
     }
   } else {
-    await _repo.createStash({
-      message: targetEntry.message,
-      includeUntracked: true,
-    });
+    try {
+      await _repo.createStash({
+        message: targetEntry.message,
+        includeUntracked: true,
+      });
+    } catch (err) {
+      throw new Error(
+        `Re-stash failed — your changes are now in the working tree. ` +
+        `Stash them manually to recover. Original error: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
   }
 }
 
@@ -522,11 +559,190 @@ export function getStashFileContent(stashRef: string, relPath: string): string {
   return result.stdout;
 }
 
+// ─── Create stash for a single file ──────────────────────────────────────────
+
+/**
+ * Creates a new stash containing only the specified file.
+ * Equivalent to `git stash push --include-untracked [-m <message>] -- <filePath>`.
+ */
+export function stashFile(filePath: string, message?: string): void {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  const args: string[] = ['stash', 'push', '--include-untracked'];
+  if (message?.trim()) {
+    args.push('-m', message.trim());
+  }
+  args.push('--', filePath);
+  const result = spawnSync(_api.git.path, args, {
+    cwd: _repo.rootUri.fsPath,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || 'git stash push failed');
+  }
+}
+
+// ─── Stash stats (diff --stat) ────────────────────────────────────────────────
+
+/**
+ * Returns per-file line change stats for a stash entry.
+ * Uses `git diff --numstat stash@{N}^1 stash@{N}`.
+ */
+export function getStashStats(entry: StashEntry): StashStat[] {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  const result = spawnSync(
+    _api.git.path,
+    ['diff', '--numstat', `${entry.ref}^1`, entry.ref],
+    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || 'git diff --numstat failed');
+  }
+  return result.stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split('\t');
+      return {
+        added: parseInt(parts[0] ?? '0', 10) || 0,
+        removed: parseInt(parts[1] ?? '0', 10) || 0,
+        file: parts[2] ?? '',
+      };
+    });
+}
+
+// ─── Search inside stashes ────────────────────────────────────────────────────
+
+/**
+ * Searches for `query` across all stash entries using `git grep`.
+ * Returns an array of matches with stash ref, file, line number, and content.
+ */
+export function searchInStashes(query: string): SearchMatch[] {
+  if (!_api || !_repo) {
+    return [];
+  }
+  const stashes = listStashes();
+  const matches: SearchMatch[] = [];
+
+  for (const stash of stashes) {
+    const result = spawnSync(
+      _api.git.path,
+      ['grep', '-n', '-i', '--', query, stash.ref],
+      { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
+    );
+    // exit 1 means no matches (not an error), exit > 1 means error
+    if (result.status !== null && result.status > 1) {
+      continue;
+    }
+    if (!result.stdout) {
+      continue;
+    }
+    for (const line of result.stdout.trim().split('\n').filter(Boolean)) {
+      // format: stash@{N}:file.ts:42:matched text
+      const firstColon = line.indexOf(':');
+      const rest = line.slice(firstColon + 1);
+      const secondColon = rest.indexOf(':');
+      const thirdColon = rest.indexOf(':', secondColon + 1);
+      const file = rest.substring(0, secondColon);
+      const lineNum = parseInt(rest.substring(secondColon + 1, thirdColon), 10) || 0;
+      const text = rest.substring(thirdColon + 1);
+      matches.push({
+        stashRef: stash.ref,
+        stashMessage: stash.message,
+        file,
+        line: lineNum,
+        text,
+      });
+    }
+  }
+  return matches;
+}
+
+// ─── Duplicate a stash ────────────────────────────────────────────────────────
+
+/**
+ * Duplicates a stash entry: applies it (keep stash), then re-stashes,
+ * resulting in two stash entries with the same changes.
+ */
+export async function duplicateStash(entry: StashEntry): Promise<void> {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  // Apply without removing from stash list
+  await _repo.applyStash(entry.index);
+  // Re-stash with same message — now original is at entry.index+1, copy at 0
+  try {
+    await _repo.createStash({ message: `${entry.message} (copy)`, includeUntracked: true });
+  } catch (err) {
+    throw new Error(
+      `Duplicate failed — your changes are now in the working tree. ` +
+      `Stash them manually to recover. Original error: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+}
+
+// ─── Import patch file as stash ───────────────────────────────────────────────
+
+/**
+ * Applies a .patch file to the index then immediately stashes the result.
+ * Uses `git apply --index <patchPath>` followed by `git stash`.
+ */
+export async function importPatchAsStash(
+  patchPath: string,
+  message?: string
+): Promise<void> {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  const gitPath = _api.git.path;
+  const cwd = _repo.rootUri.fsPath;
+
+  const applyResult = spawnSync(gitPath, ['apply', '--index', patchPath], {
+    cwd,
+    encoding: 'utf8',
+  });
+  if (applyResult.status !== 0) {
+    throw new Error(applyResult.stderr?.trim() || 'git apply failed');
+  }
+
+  await _repo.createStash({ message: message || undefined, includeUntracked: true });
+}
+
+// ─── Stash vs working tree diff info ─────────────────────────────────────────
+
+/**
+ * Returns the list of relative file paths that differ between a stash
+ * and the current working tree. Uses `git diff --name-only stash@{N}`.
+ */
+export function getStashDiffVsWorkingTree(entry: StashEntry): string[] {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  const result = spawnSync(
+    _api.git.path,
+    ['diff', '--name-only', entry.ref],
+    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || 'git diff failed');
+  }
+  return result.stdout.trim().split('\n').filter(Boolean);
+}
+
 // ─── Dispose ──────────────────────────────────────────────────────────────────
 
 export function dispose(): void {
   if (_debounceTimer) {
     clearTimeout(_debounceTimer);
+    _debounceTimer = undefined;
   }
   _onDidChangeStashes.dispose();
+  _api = undefined;
+  _repo = undefined;
 }

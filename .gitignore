@@ -17,3 +17,6 @@ Thumbs.db
 # Temporary editor/system files
 *.tmp
 *.swp
+.github/*
+.cursorrules
+AGENTS.md

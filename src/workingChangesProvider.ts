@@ -1,53 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
+import { statusLabel, statusThemeIcon } from './statusHelpers';
 import { Status } from './gitEnums';
 import { getRepository, onDidChangeStashes } from './gitHelper';
 import type { Change } from './git';
-
-// ─── Status helpers ───────────────────────────────────────────────────────────
-
-function statusLabel(status: Status): string {
-  switch (status) {
-    case Status.INDEX_MODIFIED:
-    case Status.MODIFIED:
-      return 'M';
-    case Status.INDEX_ADDED:
-    case Status.UNTRACKED:
-    case Status.INTENT_TO_ADD:
-      return 'A';
-    case Status.INDEX_DELETED:
-    case Status.DELETED:
-      return 'D';
-    case Status.INDEX_RENAMED:
-      return 'R';
-    default:
-      return '?';
-  }
-}
-
-function statusIcon(status: Status): vscode.ThemeIcon {
-  switch (status) {
-    case Status.INDEX_ADDED:
-    case Status.UNTRACKED:
-    case Status.INTENT_TO_ADD:
-      return new vscode.ThemeIcon(
-        'diff-added',
-        new vscode.ThemeColor('gitDecoration.addedResourceForeground')
-      );
-    case Status.INDEX_DELETED:
-    case Status.DELETED:
-      return new vscode.ThemeIcon(
-        'diff-removed',
-        new vscode.ThemeColor('gitDecoration.deletedResourceForeground')
-      );
-    default:
-      return new vscode.ThemeIcon(
-        'diff-modified',
-        new vscode.ThemeColor('gitDecoration.modifiedResourceForeground')
-      );
-  }
-}
 
 // ─── Tree items ───────────────────────────────────────────────────────────────
 
@@ -74,10 +30,11 @@ export class WorkingFileItem extends vscode.TreeItem {
 
     this.change = change;
     this.groupType = groupType;
+    this.id = `${groupType}:${change.uri.fsPath}`;
 
     this.description = statusLabel(change.status);
     this.tooltip = `${relativePath} [${statusLabel(change.status)}] — ${groupType}`;
-    this.iconPath = statusIcon(change.status);
+    this.iconPath = statusThemeIcon(change.status);
     this.contextValue = 'workingFile';
 
     // Default to checked so the user can selectively uncheck
@@ -126,9 +83,18 @@ export class WorkingChangesProvider implements vscode.TreeDataProvider<AnyItem> 
 
     this._allItems = [...staged, ...working];
 
+    // Remove stale IDs for items that no longer exist in the working tree
+    const currentIds = new Set(this._allItems.map((item) => item.id!));
+    for (const id of [...this._checkedIds]) {
+      const baseId = id.startsWith('__unchecked__') ? id.slice(13) : id;
+      if (!currentIds.has(baseId)) {
+        this._checkedIds.delete(id);
+      }
+    }
+
     // Any new item that hasn't been explicitly unchecked starts as checked
     for (const item of this._allItems) {
-      if (!this._checkedIds.has('__unchecked__' + item.id)) {
+      if (!this._checkedIds.has('__unchecked__' + item.id!)) {
         this._checkedIds.add(item.id!);
       }
     }
@@ -147,31 +113,12 @@ export class WorkingChangesProvider implements vscode.TreeDataProvider<AnyItem> 
 
   getChildren(element?: AnyItem): AnyItem[] {
     if (!element) {
-      // Root: build groups lazily
-      this._buildItems();
-      const repo = getRepository();
-      if (!repo) {
+      if (!getRepository()) {
         return [];
       }
-      const repoRoot = repo.rootUri.fsPath;
 
-      const staged = repo.state.indexChanges.map(
-        (c) => new WorkingFileItem(c, 'staged', repoRoot)
-      );
-      const working = repo.state.workingTreeChanges.map(
-        (c) => new WorkingFileItem(c, 'working', repoRoot)
-      );
-      this._allItems = [...staged, ...working];
-
-      // Restore/set checkbox state
-      for (const item of this._allItems) {
-        if (!this._checkedIds.has('__unchecked__' + item.id!)) {
-          this._checkedIds.add(item.id!);
-        }
-        item.checkboxState = this._checkedIds.has(item.id!)
-          ? vscode.TreeItemCheckboxState.Checked
-          : vscode.TreeItemCheckboxState.Unchecked;
-      }
+      const staged = this._allItems.filter((item) => item.groupType === 'staged');
+      const working = this._allItems.filter((item) => item.groupType === 'working');
 
       const groups: AnyItem[] = [];
       if (staged.length > 0) {

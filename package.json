@@ -2,7 +2,7 @@
   "name": "stasher",
   "displayName": "Stasher",
   "description": "Simple, visual git stash management in the Activity Bar — create, browse, apply, pop, drop, diff and branch stashes without touching a terminal.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",
@@ -26,10 +26,6 @@
     "source control"
   ],
   "icon": "resources/icon.png",
-  "activationEvents": [
-    "onView:stasher.stashList",
-    "onView:stasher.workingChanges"
-  ],
   "main": "./dist/extension",
   "contributes": {
     "viewsContainers": {
@@ -47,13 +43,15 @@
           "id": "stasher.workingChanges",
           "name": "Working Changes",
           "contextualTitle": "Stasher",
-          "visibility": "visible"
+          "visibility": "visible",
+          "icon": "$(source-control)"
         },
         {
           "id": "stasher.stashList",
           "name": "Stashes",
           "contextualTitle": "Stasher",
-          "visibility": "visible"
+          "visibility": "visible",
+          "icon": "$(archive)"
         }
       ]
     },
@@ -204,6 +202,114 @@
         "title": "Apply Hunks from Stash…",
         "category": "Stasher",
         "icon": "$(diff-added)"
+      },
+      {
+        "command": "stasher.filterStashes",
+        "title": "Filter Stashes…",
+        "category": "Stasher",
+        "icon": "$(search)"
+      },
+      {
+        "command": "stasher.clearFilter",
+        "title": "Clear Filter",
+        "category": "Stasher",
+        "icon": "$(close)"
+      },
+      {
+        "command": "stasher.stashThisFile",
+        "title": "Stash This File",
+        "category": "Stasher",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "stasher.showStashStats",
+        "title": "Show Stash Stats",
+        "category": "Stasher",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "stasher.searchInStashes",
+        "title": "Search Inside Stashes",
+        "category": "Stasher",
+        "icon": "$(search)"
+      },
+      {
+        "command": "stasher.duplicateStash",
+        "title": "Duplicate Stash",
+        "category": "Stasher",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "stasher.importPatch",
+        "title": "Import .patch as Stash…",
+        "category": "Stasher",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "stasher.peekFile",
+        "title": "Peek File Content",
+        "category": "Stasher",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "stasher.pinStash",
+        "title": "Pin Stash",
+        "category": "Stasher",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "stasher.unpinStash",
+        "title": "Unpin Stash",
+        "category": "Stasher",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "stasher.editStashNote",
+        "title": "Edit Stash Note…",
+        "category": "Stasher",
+        "icon": "$(note)"
+      },
+      {
+        "command": "stasher.toggleAutoRestore",
+        "title": "Toggle Auto-Restore at Startup",
+        "category": "Stasher",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "stasher.diffVsWorkingTree",
+        "title": "Diff vs Working Tree…",
+        "category": "Stasher",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "stasher.stashAndSwitch",
+        "title": "Stash & Switch Branch…",
+        "category": "Stasher",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "stasher.setStashLabel",
+        "title": "Set Colour Label…",
+        "category": "Stasher",
+        "icon": "$(tag)"
+      },
+      {
+        "command": "stasher.openTimeline",
+        "title": "Open Stash Timeline",
+        "category": "Stasher",
+        "icon": "$(timeline-open)"
+      },
+      {
+        "command": "stasher.toggleGroupByBranch",
+        "title": "Toggle Group by Branch",
+        "category": "Stasher",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "stasher.toggleGroupByDir",
+        "title": "Toggle Group Files by Directory",
+        "category": "Stasher",
+        "icon": "$(folder-library)"
       }
     ],
     "menus": {
@@ -224,6 +330,16 @@
           "group": "navigation@3"
         },
         {
+          "command": "stasher.openTimeline",
+          "when": "view == stasher.stashList",
+          "group": "navigation@6"
+        },
+        {
+          "command": "stasher.toggleGroupByBranch",
+          "when": "view == stasher.stashList",
+          "group": "navigation@7"
+        },
+        {
           "command": "stasher.createStash",
           "when": "view == stasher.stashList",
           "group": "navigation@1"
@@ -239,12 +355,37 @@
           "group": "navigation@3"
         },
         {
+          "command": "stasher.filterStashes",
+          "when": "view == stasher.stashList",
+          "group": "navigation@4"
+        },
+        {
+          "command": "stasher.clearFilter",
+          "when": "view == stasher.stashList && stasher.hasFilter",
+          "group": "navigation@5"
+        },
+        {
           "command": "stasher.quickStash",
           "when": "view == stasher.workingChanges",
           "group": "navigation@4"
         }
       ],
       "view/item/context": [
+        {
+          "command": "stasher.showStashDetails",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "inline@2"
+        },
+        {
+          "command": "stasher.popStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "inline@1"
+        },
+        {
+          "command": "stasher.dropStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "inline@3"
+        },
         {
           "command": "stasher.popStash",
           "when": "view == stasher.stashList && viewItem == stashEntry",
@@ -291,6 +432,11 @@
           "group": "inline"
         },
         {
+          "command": "stasher.stashThisFile",
+          "when": "view == stasher.workingChanges && viewItem == workingFile",
+          "group": "1_stash@1"
+        },
+        {
           "command": "stasher.unstashFiles",
           "when": "view == stasher.stashList && viewItem == stashEntry",
           "group": "4_partial@1"
@@ -329,8 +475,108 @@
           "command": "stasher.copyFilePath",
           "when": "view == stasher.stashList && viewItem == stashFile",
           "group": "2_copy@1"
+        },
+        {
+          "command": "stasher.showStashStats",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "5_export@2"
+        },
+        {
+          "command": "stasher.showStashStats",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "5_export@2"
+        },
+        {
+          "command": "stasher.duplicateStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "3_manage@3"
+        },
+        {
+          "command": "stasher.duplicateStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "3_manage@3"
+        },
+        {
+          "command": "stasher.exportPatch",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "5_export@1"
+        },
+        {
+          "command": "stasher.pinStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "6_pin@1"
+        },
+        {
+          "command": "stasher.unpinStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "6_pin@1"
+        },
+        {
+          "command": "stasher.editStashNote",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "6_pin@2"
+        },
+        {
+          "command": "stasher.editStashNote",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "6_pin@2"
+        },
+        {
+          "command": "stasher.toggleAutoRestore",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "6_pin@3"
+        },
+        {
+          "command": "stasher.toggleAutoRestore",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "6_pin@3"
+        },
+        {
+          "command": "stasher.diffVsWorkingTree",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "4_partial@4"
+        },
+        {
+          "command": "stasher.diffVsWorkingTree",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "4_partial@4"
+        },
+        {
+          "command": "stasher.peekFile",
+          "when": "view == stasher.stashList && viewItem == stashFile",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "stasher.setStashLabel",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "6_pin@4"
+        },
+        {
+          "command": "stasher.setStashLabel",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "6_pin@4"
+        },
+        {
+          "command": "stasher.toggleGroupByDir",
+          "when": "view == stasher.stashList && viewItem == stashFile",
+          "group": "2_copy@2"
         }
       ]
+    }
+  },
+  "configuration": {
+    "title": "Stasher",
+    "properties": {
+      "stasher.groupByBranch": {
+        "type": "boolean",
+        "default": false,
+        "description": "Group stashes in the tree by the branch they were created on."
+      },
+      "stasher.groupFilesByDirectory": {
+        "type": "boolean",
+        "default": false,
+        "description": "Group files inside a stash by their parent directory."
+      }
     }
   },
   "scripts": {
@@ -338,14 +584,18 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc --noEmit",
+    "test": "mocha --require ts-node/register --timeout 10000 'src/test/**/*.test.ts'",
     "package:vsix": "vsce package",
     "publish:extension": "vsce publish"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "2.24.0",
     "esbuild": "^0.21.0",
+    "mocha": "^11.7.5",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.0"
   },
   "overrides": {

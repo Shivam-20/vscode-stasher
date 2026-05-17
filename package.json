@@ -2,7 +2,7 @@
   "name": "stasher",
   "displayName": "Stasher",
   "description": "Simple, visual git stash management in the Activity Bar — create, browse, apply, pop, drop, diff and branch stashes without touching a terminal.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",

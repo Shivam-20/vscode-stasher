@@ -465,7 +465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Export as .patch
   context.subscriptions.push(
-    vscode.commands.registerCommand('stasher.exportPatch', async (item: StashTreeItem, selectedItems?: any[]) => {
+    vscode.commands.registerCommand('stasher.exportPatch', async (item: StashTreeItem, selectedItems?: StashTreeItem[]) => {
       const items = (selectedItems && selectedItems.length > 1)
         ? (selectedItems.filter((i) => i instanceof StashTreeItem) as StashTreeItem[])
         : (item instanceof StashTreeItem ? [item] : []);
@@ -510,7 +510,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           let content: string;
           try {
             content = exportStashAsPatch(i.stashEntry);
-          } catch { continue; }
+          } catch (err) {
+            logger.warn('exportPatch: failed to export stash', { stash: i.stashEntry.ref, error: err instanceof Error ? err.message : String(err) });
+            continue;
+          }
 
           if (fs.existsSync(filePath)) {
             const answer = await vscode.window.showWarningMessage(
@@ -524,7 +527,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try {
             fs.writeFileSync(filePath, content, { encoding: 'utf8' });
             exported++;
-          } catch { /* ignore */ }
+          } catch (err) {
+            logger.warn('exportPatch: failed to write file', { filePath, error: err instanceof Error ? err.message : String(err) });
+          }
         }
         void vscode.window.showInformationMessage(`Stasher: Exported ${exported} patch(es).`);
       }
@@ -595,7 +600,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           let content: string;
           try {
             content = exportStashAsPatch(entry);
-          } catch { continue; }
+          } catch (err) {
+            logger.warn('exportPatches: failed to export stash', { stash: entry.ref, error: err instanceof Error ? err.message : String(err) });
+            continue;
+          }
 
           if (fs.existsSync(filePath)) {
             const answer = await vscode.window.showWarningMessage(
@@ -609,7 +617,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try {
             fs.writeFileSync(filePath, content, { encoding: 'utf8' });
             exported++;
-          } catch { /* ignore */ }
+          } catch (err) {
+            logger.warn('exportPatches: failed to write file', { filePath, error: err instanceof Error ? err.message : String(err) });
+          }
         }
         void vscode.window.showInformationMessage(`Stasher: Exported ${exported} patch(es).`);
       }

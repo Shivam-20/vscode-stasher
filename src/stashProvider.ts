@@ -12,18 +12,6 @@ import {
   type StashEntry,
 } from './gitHelper';
 
-// ─── Branch colour helper ─────────────────────────────────────────────────────
-
-const BRANCH_PALETTE = [
-  '#4fc3f7', '#81c784', '#ffb74d', '#f06292', '#ce93d8',
-  '#4db6ac', '#fff176', '#80cbc4', '#ef9a9a', '#a5d6a7',
-];
-function branchColor(branch: string): string {
-  let hash = 0;
-  for (const ch of branch) { hash = (hash * 31 + ch.charCodeAt(0)) & 0xffffffff; }
-  return BRANCH_PALETTE[Math.abs(hash) % BRANCH_PALETTE.length];
-}
-
 // ─── Tree item types ──────────────────────────────────────────────────────────
 
 export class StashBranchGroupItem extends vscode.TreeItem {

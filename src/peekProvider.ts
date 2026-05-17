@@ -24,6 +24,10 @@ export class StashPeekProvider implements vscode.TextDocumentContentProvider {
     const stashRef = decodeURIComponent(uri.authority);
     const relPath = uri.path.startsWith('/') ? uri.path.slice(1) : uri.path;
 
+    if (stashRef === 'empty') {
+      return '';
+    }
+
     try {
       return getStashFileContent(stashRef, relPath);
     } catch {
@@ -44,7 +48,13 @@ export function buildPeekUri(item: StashFileTreeItem, repoRoot: string): vscode.
   const encodedRef = encodeURIComponent(item.stashRef);
   return vscode.Uri.parse(`${PEEK_SCHEME}://${encodedRef}/${relPath}`);
 }
-
+/**
+ * Builds a stasher-peek:// URI for an empty file version.
+ */
+export function buildEmptyUri(item: StashFileTreeItem, repoRoot: string): vscode.Uri {
+  const relPath = path.relative(repoRoot, item.absolutePath).replace(/\\/g, '/');
+  return vscode.Uri.parse(`${PEEK_SCHEME}://empty/${relPath}`);
+}
 /**
  * Opens the stash version of a file in a read-only editor (no working tree changes).
  */

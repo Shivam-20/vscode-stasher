@@ -120,6 +120,12 @@
         "icon": "$(diff)"
       },
       {
+        "command": "stasher.showWorkingDiff",
+        "title": "Show Changes",
+        "category": "Stasher",
+        "icon": "$(diff)"
+      },
+      {
         "command": "stasher.showStashDetails",
         "title": "Show Stash Contents",
         "category": "Stasher",
@@ -168,6 +174,12 @@
         "icon": "$(file-code)"
       },
       {
+        "command": "stasher.exportPatches",
+        "title": "Export Stashes as Patches…",
+        "category": "Stasher",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "stasher.unstashThisFile",
         "title": "Unstash This File",
         "category": "Stasher",
@@ -182,6 +194,12 @@
       {
         "command": "stasher.deleteFileFromStash",
         "title": "Delete File from Stash",
+        "category": "Stasher",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stasher.deleteFilesFromStash",
+        "title": "Delete Files from Stash…",
         "category": "Stasher",
         "icon": "$(trash)"
       },
@@ -340,6 +358,16 @@
           "group": "navigation@7"
         },
         {
+          "command": "stasher.importPatch",
+          "when": "view == stasher.stashList",
+          "group": "navigation@8"
+        },
+        {
+          "command": "stasher.exportPatches",
+          "when": "view == stasher.stashList",
+          "group": "navigation@9"
+        },
+        {
           "command": "stasher.createStash",
           "when": "view == stasher.stashList",
           "group": "navigation@1"
@@ -417,6 +445,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "stasher.showWorkingDiff",
+          "when": "view == stasher.workingChanges && viewItem == workingFile",
+          "group": "navigation@1"
+        },
+        {
           "command": "stasher.stashChecked",
           "when": "view == stasher.workingChanges",
           "group": "navigation@1"
@@ -442,14 +475,19 @@
           "group": "4_partial@1"
         },
         {
-          "command": "stasher.mergeStash",
+          "command": "stasher.deleteFilesFromStash",
           "when": "view == stasher.stashList && viewItem == stashEntry",
           "group": "4_partial@2"
         },
         {
-          "command": "stasher.compareStash",
+          "command": "stasher.mergeStash",
           "when": "view == stasher.stashList && viewItem == stashEntry",
           "group": "4_partial@3"
+        },
+        {
+          "command": "stasher.compareStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "4_partial@4"
         },
         {
           "command": "stasher.exportPatch",
@@ -542,6 +580,11 @@
           "group": "4_partial@4"
         },
         {
+          "command": "stasher.deleteFilesFromStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "4_partial@2"
+        },
+        {
           "command": "stasher.peekFile",
           "when": "view == stasher.stashList && viewItem == stashFile",
           "group": "1_actions@3"
@@ -562,20 +605,20 @@
           "group": "2_copy@2"
         }
       ]
-    }
-  },
-  "configuration": {
-    "title": "Stasher",
-    "properties": {
-      "stasher.groupByBranch": {
-        "type": "boolean",
-        "default": false,
-        "description": "Group stashes in the tree by the branch they were created on."
-      },
-      "stasher.groupFilesByDirectory": {
-        "type": "boolean",
-        "default": false,
-        "description": "Group files inside a stash by their parent directory."
+    },
+    "configuration": {
+      "title": "Stasher",
+      "properties": {
+        "stasher.groupByBranch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Group stashes in the tree by the branch they were created on."
+        },
+        "stasher.groupFilesByDirectory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Group files inside a stash by their parent directory."
+        }
       }
     }
   },

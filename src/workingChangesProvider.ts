@@ -39,6 +39,12 @@ export class WorkingFileItem extends vscode.TreeItem {
 
     // Default to checked so the user can selectively uncheck
     this.checkboxState = vscode.TreeItemCheckboxState.Checked;
+
+    this.command = {
+      title: 'Show Changes',
+      command: 'stasher.showWorkingDiff',
+      arguments: [this]
+    };
   }
 }
 

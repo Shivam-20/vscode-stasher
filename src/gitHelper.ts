@@ -690,6 +690,30 @@ export async function duplicateStash(entry: StashEntry): Promise<void> {
 // ─── Import patch file as stash ───────────────────────────────────────────────
 
 /**
+ * Checks if a patch file's content matches any existing stash.
+ * Returns the matching StashEntry if a duplicate is found, or undefined.
+ */
+export function findDuplicateStashForPatch(patchContent: string): StashEntry | undefined {
+  if (!_api || !_repo) {
+    return undefined;
+  }
+  const stashes = listStashes();
+  const normalised = patchContent.trim();
+
+  for (const entry of stashes) {
+    try {
+      const existing = exportStashAsPatch(entry);
+      if (existing.trim() === normalised) {
+        return entry;
+      }
+    } catch {
+      // skip stashes that can't be exported (e.g. empty)
+    }
+  }
+  return undefined;
+}
+
+/**
  * Applies a .patch file to the index then immediately stashes the result.
  * Uses `git apply --index <patchPath>` followed by `git stash`.
  */

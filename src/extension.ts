@@ -19,6 +19,7 @@ import {
   deleteFilesFromStash,
   mergeStashes,
   exportStashAsPatch,
+  findDuplicateStashForPatch,
   stashFile,
   getStashStats,
   searchInStashes,
@@ -29,7 +30,7 @@ import {
 } from './gitHelper';
 import { StashTreeDataProvider, StashTreeItem, StashFileTreeItem } from './stashProvider';
 import { WorkingChangesProvider, WorkingFileItem } from './workingChangesProvider';
-import { showFileDiff } from './diffViewer';
+import { showFileDiff, showWorkingDiff } from './diffViewer';
 import { withConflictHandling } from './conflictHelper';
 import { partialStashCommand } from './partialStash';
 import { openHunkPicker, disposeHunkPicker } from './hunkPicker';
@@ -44,6 +45,7 @@ import {
 import { logger } from './logger';
 import { openTimeline, refreshTimeline } from './timelineView';
 import { StashBranchGroupItem } from './stashProvider';
+import { statusLabel } from './statusHelpers';
 
 // ─── Activation ───────────────────────────────────────────────────────────────
 
@@ -463,29 +465,153 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Export as .patch
   context.subscriptions.push(
-    vscode.commands.registerCommand('stasher.exportPatch', async (item: StashTreeItem) => {
-      if (!(item instanceof StashTreeItem)) { return; }
-      let content: string;
-      try {
-        content = exportStashAsPatch(item.stashEntry);
-      } catch (err) {
-        void vscode.window.showErrorMessage(
-          `Stasher: ${err instanceof Error ? err.message : String(err)}`
-        );
+    vscode.commands.registerCommand('stasher.exportPatch', async (item: StashTreeItem, selectedItems?: any[]) => {
+      const items = (selectedItems && selectedItems.length > 1)
+        ? (selectedItems.filter((i) => i instanceof StashTreeItem) as StashTreeItem[])
+        : (item instanceof StashTreeItem ? [item] : []);
+      if (items.length === 0) { return; }
+
+      if (items.length === 1) {
+        // Single export
+        const singleItem = items[0];
+        let content: string;
+        try {
+          content = exportStashAsPatch(singleItem.stashEntry);
+        } catch (err) {
+          void vscode.window.showErrorMessage(`Stasher: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        const saveUri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(`stash_${singleItem.stashEntry.index}.patch`),
+          filters: { 'Patch files': ['patch'], 'All files': ['*'] },
+        });
+        if (!saveUri) { return; }
+        try {
+          fs.writeFileSync(saveUri.fsPath, content, { encoding: 'utf8' });
+          void vscode.window.showInformationMessage(`Stasher: Patch saved to ${path.basename(saveUri.fsPath)}.`);
+        } catch (err) {
+          void vscode.window.showErrorMessage(`Stasher: Could not write patch — ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else {
+        // Multiple export
+        const folderUris = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          title: 'Select Folder to Export Patches',
+        });
+        if (!folderUris || folderUris.length === 0) { return; }
+        const outDir = folderUris[0].fsPath;
+
+        let exported = 0;
+        for (const i of items) {
+          const defaultName = `stash_${i.stashEntry.index}.patch`;
+          const filePath = path.join(outDir, defaultName);
+          let content: string;
+          try {
+            content = exportStashAsPatch(i.stashEntry);
+          } catch { continue; }
+
+          if (fs.existsSync(filePath)) {
+            const answer = await vscode.window.showWarningMessage(
+              `Stasher: ${defaultName} already exists.`,
+              { modal: true },
+              'Overwrite', 'Skip'
+            );
+            if (answer === 'Skip') { continue; }
+            if (answer !== 'Overwrite') { break; } // Cancelled
+          }
+          try {
+            fs.writeFileSync(filePath, content, { encoding: 'utf8' });
+            exported++;
+          } catch { /* ignore */ }
+        }
+        void vscode.window.showInformationMessage(`Stasher: Exported ${exported} patch(es).`);
+      }
+    })
+  );
+
+  // Export Stashes as Patches (multi-select via QuickPick)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.exportPatches', async () => {
+      const stashes = listStashes();
+      if (stashes.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No stashes to export.');
         return;
       }
-      const saveUri = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.file(`stash_${item.stashEntry.index}.patch`),
-        filters: { 'Patch files': ['patch'], 'All files': ['*'] },
-      });
-      if (!saveUri) { return; }
-      try {
-        fs.writeFileSync(saveUri.fsPath, content, { encoding: 'utf8' });
-        void vscode.window.showInformationMessage(`Stasher: Patch saved to ${path.basename(saveUri.fsPath)}.`);
-      } catch (err) {
-        void vscode.window.showErrorMessage(
-          `Stasher: Could not write patch — ${err instanceof Error ? err.message : String(err)}`
-        );
+
+      const picks = await vscode.window.showQuickPick(
+        stashes.map((s) => ({
+          label: s.ref,
+          description: s.message,
+          picked: false,
+          stash: s,
+        })),
+        {
+          canPickMany: true,
+          title: 'Export Stashes as Patches',
+          placeHolder: 'Select stashes to export',
+        }
+      );
+      if (!picks || picks.length === 0) { return; }
+
+      if (picks.length === 1) {
+        // Single — use save dialog
+        const entry = picks[0].stash;
+        let content: string;
+        try {
+          content = exportStashAsPatch(entry);
+        } catch (err) {
+          void vscode.window.showErrorMessage(`Stasher: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        const saveUri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(`stash_${entry.index}.patch`),
+          filters: { 'Patch files': ['patch'], 'All files': ['*'] },
+        });
+        if (!saveUri) { return; }
+        try {
+          fs.writeFileSync(saveUri.fsPath, content, { encoding: 'utf8' });
+          void vscode.window.showInformationMessage(`Stasher: Patch saved to ${path.basename(saveUri.fsPath)}.`);
+        } catch (err) {
+          void vscode.window.showErrorMessage(`Stasher: Could not write patch — ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else {
+        // Multiple — pick a folder
+        const folderUris = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          title: 'Select Folder to Export Patches',
+        });
+        if (!folderUris || folderUris.length === 0) { return; }
+        const outDir = folderUris[0].fsPath;
+
+        let exported = 0;
+        for (const pick of picks) {
+          const entry = pick.stash;
+          const defaultName = `stash_${entry.index}.patch`;
+          const filePath = path.join(outDir, defaultName);
+          let content: string;
+          try {
+            content = exportStashAsPatch(entry);
+          } catch { continue; }
+
+          if (fs.existsSync(filePath)) {
+            const answer = await vscode.window.showWarningMessage(
+              `Stasher: ${defaultName} already exists.`,
+              { modal: true },
+              'Overwrite', 'Skip'
+            );
+            if (answer === 'Skip') { continue; }
+            if (answer !== 'Overwrite') { break; }
+          }
+          try {
+            fs.writeFileSync(filePath, content, { encoding: 'utf8' });
+            exported++;
+          } catch { /* ignore */ }
+        }
+        void vscode.window.showInformationMessage(`Stasher: Exported ${exported} patch(es).`);
       }
     })
   );
@@ -566,6 +692,95 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider.refresh();
         workingProvider.refresh();
         void vscode.window.showInformationMessage('Stasher: File removed from stash.');
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
+  // Delete Files from Stash… (multi-select with preview)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.deleteFilesFromStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      const entry = item.stashEntry;
+      const group = await getStashFiles(entry.ref);
+      const allChanges = [...group.tracked, ...group.untracked];
+      if (allChanges.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No files found in this stash.');
+        return;
+      }
+
+      const repoRoot = getRepository()?.rootUri.fsPath ?? '';
+      const api = getAPI();
+
+      // Build QuickPick items with status labels and detail
+      interface FilePickItem extends vscode.QuickPickItem {
+        filePath: string;
+        changeUri: vscode.Uri;
+        status: number;
+      }
+
+      const fileItems: FilePickItem[] = allChanges.map((change) => {
+        const relPath = path.relative(repoRoot, change.uri.fsPath) || path.basename(change.uri.fsPath);
+        const badge = statusLabel(change.status);
+        return {
+          label: `$(file) ${path.basename(change.uri.fsPath)}`,
+          description: `[${badge}] ${relPath}`,
+          filePath: change.uri.fsPath,
+          changeUri: change.uri,
+          status: change.status,
+          picked: false,
+        };
+      });
+
+      // Use a QuickPick with buttons for preview
+      const qp = vscode.window.createQuickPick<FilePickItem>();
+      qp.title = `Delete Files from "${entry.message}"`;
+      qp.placeholder = 'Select files to remove from this stash (use the eye button to preview)';
+      qp.items = fileItems;
+      qp.canSelectMany = true;
+      qp.buttons = [
+        { iconPath: new vscode.ThemeIcon('eye'), tooltip: 'Preview selected file diff' },
+      ];
+
+      const result = await new Promise<FilePickItem[] | undefined>((resolve) => {
+        qp.onDidTriggerButton(async () => {
+          // Preview: show diff for the first selected item (or first item if none selected)
+          const selected = qp.selectedItems.length > 0 ? qp.selectedItems : [fileItems[0]];
+          const previewItem = selected[0];
+          if (api && previewItem) {
+            const tempItem = new StashFileTreeItem(previewItem.changeUri, previewItem.status, entry.ref, repoRoot);
+            void showFileDiff(tempItem);
+          }
+        });
+        qp.onDidAccept(() => {
+          const picked = [...qp.selectedItems];
+          qp.dispose();
+          resolve(picked.length > 0 ? picked : undefined);
+        });
+        qp.onDidHide(() => {
+          qp.dispose();
+          resolve(undefined);
+        });
+        qp.show();
+      });
+
+      if (!result || result.length === 0) { return; }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Remove ${result.length} file(s) from "${entry.message}"? The stash will be re-created without these files.`,
+        { modal: true },
+        'Delete'
+      );
+      if (confirm !== 'Delete') { return; }
+
+      try {
+        await deleteFilesFromStash(entry, result.map((r) => r.filePath));
+        provider.refresh();
+        workingProvider.refresh();
+        void vscode.window.showInformationMessage(`Stasher: ${result.length} file(s) removed from stash.`);
       } catch (err) {
         void vscode.window.showErrorMessage(
           `Stasher: ${err instanceof Error ? err.message : String(err)}`
@@ -854,26 +1069,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('stasher.importPatch', async () => {
       const uris = await vscode.window.showOpenDialog({
-        title: 'Import Patch as Stash',
+        title: 'Import Patch(es) as Stash',
         filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
-        canSelectMany: false,
+        canSelectMany: true,
       });
       if (!uris || uris.length === 0) { return; }
-      const patchPath = uris[0].fsPath;
-      const message = await vscode.window.showInputBox({
-        title: 'Import Patch — Stash Name',
-        placeHolder: 'e.g. "imported: auth patch" — leave empty for default',
-        prompt: 'Optional: name for the new stash',
-      });
-      if (message === undefined) { return; }
+
+      let imported = 0;
+      let skipped = 0;
+
       try {
-        await importPatchAsStash(patchPath, message || undefined);
+        for (const uri of uris) {
+          const patchPath = uri.fsPath;
+          const patchContent = fs.readFileSync(patchPath, 'utf8');
+
+          // ── Duplicate detection ──────────────────────────────────────────
+          const duplicate = findDuplicateStashForPatch(patchContent);
+          if (duplicate) {
+            const choice = await vscode.window.showWarningMessage(
+              `"${path.basename(patchPath)}" matches existing stash "${duplicate.message}" (${duplicate.ref}).`,
+              { modal: true },
+              'Overwrite', 'Import as New', 'Skip'
+            );
+            if (!choice || choice === 'Skip') {
+              skipped++;
+              continue;
+            }
+            if (choice === 'Overwrite') {
+              // Drop the existing stash, then import
+              await dropStash(duplicate.index);
+            }
+            // 'Import as New' — just proceed normally
+          }
+
+          // ── Prompt for name (single file only) ───────────────────────────
+          let message: string | undefined;
+          if (uris.length === 1) {
+            const input = await vscode.window.showInputBox({
+              title: 'Import Patch — Stash Name',
+              placeHolder: 'e.g. "imported: auth patch" — leave empty for default',
+              prompt: 'Optional: name for the new stash',
+            });
+            if (input === undefined) { return; }
+            message = input || undefined;
+          } else {
+            message = `imported: ${path.basename(patchPath)}`;
+          }
+
+          await importPatchAsStash(patchPath, message);
+          logger.info('importPatch', { patchPath });
+          imported++;
+        }
+
         provider.refresh();
         workingProvider.refresh();
-        void vscode.window.showInformationMessage(
-          `Stasher: Patch imported as stash from ${path.basename(patchPath)}.`
-        );
-        logger.info('importPatch', { patchPath });
+
+        const parts: string[] = [];
+        if (imported > 0) { parts.push(`${imported} imported`); }
+        if (skipped > 0) { parts.push(`${skipped} skipped`); }
+        void vscode.window.showInformationMessage(`Stasher: ${parts.join(', ')}.`);
       } catch (err) {
         void vscode.window.showErrorMessage(
           `Stasher: Import patch failed — ${err instanceof Error ? err.message : String(err)}`
@@ -989,6 +1243,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── NEW: Stash & Switch Branch ───────────────────────────────────────────
   context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.showWorkingDiff', async (item: unknown) => {
+      if (item instanceof WorkingFileItem) {
+        await showWorkingDiff(item);
+      }
+    }),
     vscode.commands.registerCommand('stasher.stashAndSwitch', async () => {
       const repo = getRepository();
       if (!repo) {

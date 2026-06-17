@@ -2,7 +2,7 @@
   "name": "stasher",
   "displayName": "Stasher",
   "description": "Simple, visual git stash management in the Activity Bar — create, browse, apply, pop, drop, diff and branch stashes without touching a terminal.",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",
@@ -196,6 +196,12 @@
         "title": "Delete File from Stash",
         "category": "Stasher",
         "icon": "$(trash)"
+      },
+      {
+        "command": "stasher.moveFileToStash",
+        "title": "Move File to Another Stash…",
+        "category": "Stasher",
+        "icon": "$(arrow-swap)"
       },
       {
         "command": "stasher.deleteFilesFromStash",
@@ -500,14 +506,19 @@
           "group": "inline"
         },
         {
-          "command": "stasher.applyHunks",
+          "command": "stasher.moveFileToStash",
           "when": "view == stasher.stashList && viewItem == stashFile",
-          "group": "1_actions@1"
+          "group": "inline"
         },
         {
           "command": "stasher.deleteFileFromStash",
           "when": "view == stasher.stashList && viewItem == stashFile",
-          "group": "1_actions@2"
+          "group": "inline"
+        },
+        {
+          "command": "stasher.applyHunks",
+          "when": "view == stasher.stashList && viewItem == stashFile",
+          "group": "1_actions@1"
         },
         {
           "command": "stasher.copyFilePath",
@@ -587,7 +598,7 @@
         {
           "command": "stasher.peekFile",
           "when": "view == stasher.stashList && viewItem == stashFile",
-          "group": "1_actions@3"
+          "group": "1_actions@2"
         },
         {
           "command": "stasher.setStashLabel",

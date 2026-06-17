@@ -105,7 +105,7 @@ export async function partialStashCommand(preSelectedPaths?: string[]): Promise<
   }
 
   // Step 3: Run git stash push -- <selected paths>
-  const args: string[] = ['stash', 'push'];
+  const args: string[] = ['stash', 'push', '--include-untracked'];
   if (message.trim()) {
     args.push('-m', message.trim());
   }

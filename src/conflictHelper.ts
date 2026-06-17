@@ -70,12 +70,14 @@ export async function handleConflicts(): Promise<void> {
  */
 export async function withConflictHandling(
   operation: () => Promise<void>
-): Promise<void> {
+): Promise<boolean> {
   try {
     await operation();
+    return true;
   } catch (err) {
     if (isStashConflict(err)) {
       await handleConflicts();
+      return false;
     } else {
       throw err;
     }

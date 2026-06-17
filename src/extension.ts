@@ -26,6 +26,7 @@ import {
   duplicateStash,
   importPatchAsStash,
   getStashDiffVsWorkingTree,
+  copyFileFromStashToStash,
   dispose as disposeGit,
 } from './gitHelper';
 import { StashTreeDataProvider, StashTreeItem, StashFileTreeItem } from './stashProvider';
@@ -48,6 +49,8 @@ import { StashBranchGroupItem } from './stashProvider';
 import { statusLabel } from './statusHelpers';
 
 // ─── Activation ───────────────────────────────────────────────────────────────
+
+let stashStatsChannel: vscode.OutputChannel | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   logger.init();
@@ -134,6 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try {
           await withConflictHandling(() => popStash(item.stashEntry.index));
           provider.refresh();
+          workingProvider.refresh();
         } catch (err) {
           void vscode.window.showErrorMessage(
             `Stasher: Pop failed — ${err instanceof Error ? err.message : String(err)}`
@@ -152,6 +156,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try {
           await withConflictHandling(() => applyStash(item.stashEntry.index));
           provider.refresh();
+          workingProvider.refresh();
         } catch (err) {
           void vscode.window.showErrorMessage(
             `Stasher: Apply failed — ${err instanceof Error ? err.message : String(err)}`
@@ -343,11 +348,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       try {
-        await withConflictHandling(() =>
+        const completed = await withConflictHandling(() =>
           addToExistingStash(picked.stash, usingPaths ? paths : undefined)
         );
         provider.refresh();
         workingProvider.refresh();
+        if (!completed) {
+          return;
+        }
         void vscode.window.showInformationMessage(`Stasher: Changes merged into "${picked.description}".`);
       } catch (err) {
         void vscode.window.showErrorMessage(
@@ -389,11 +397,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
 
           try {
-            await withConflictHandling(() =>
+            const completed = await withConflictHandling(() =>
               addToExistingStash(picked.stash, [filePath])
             );
             provider.refresh();
             workingProvider.refresh();
+            if (!completed) {
+              return;
+            }
             void vscode.window.showInformationMessage(
               `Stasher: File added to "${picked.description}".`
             );
@@ -710,6 +721,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Move File to Another Stash… (safe copy first, optional remove later)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.moveFileToStash', async (item: StashFileTreeItem) => {
+      if (!(item instanceof StashFileTreeItem)) { return; }
+
+      const sourceEntry = listStashes().find((s) => s.ref === item.stashRef);
+      if (!sourceEntry) {
+        void vscode.window.showErrorMessage('Stasher: Could not locate source stash entry.');
+        return;
+      }
+
+      const targets = listStashes().filter((s) => s.ref !== sourceEntry.ref);
+      if (targets.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No other stashes available to move this file into.');
+        return;
+      }
+
+      const picked = await vscode.window.showQuickPick(
+        targets.map((s) => ({ label: s.ref, description: s.message, stash: s })),
+        {
+          title: 'Move File to Another Stash',
+          placeHolder: 'Choose the target stash',
+        }
+      );
+      if (!picked) { return; }
+
+      const copyAnswer = await vscode.window.showWarningMessage(
+        `Copy "${path.basename(item.absolutePath)}" into "${picked.description}" first? The original stash will stay unchanged unless you confirm removal afterward.`,
+        { modal: true },
+        'Copy to Target'
+      );
+      if (copyAnswer !== 'Copy to Target') {
+        return;
+      }
+
+      try {
+        const completed = await withConflictHandling(() =>
+          copyFileFromStashToStash(sourceEntry, picked.stash, item.absolutePath)
+        );
+        provider.refresh();
+        workingProvider.refresh();
+        if (!completed) {
+          return;
+        }
+
+        const removeAnswer = await vscode.window.showWarningMessage(
+          `Stasher: File copied to "${picked.description}". Remove it from "${sourceEntry.message}" too?`,
+          'Remove from Original',
+          'Keep in Both'
+        );
+
+        if (removeAnswer === 'Remove from Original') {
+          await deleteFilesFromStash(sourceEntry, [item.absolutePath]);
+          provider.refresh();
+          workingProvider.refresh();
+          void vscode.window.showInformationMessage('Stasher: File moved to the target stash.');
+          return;
+        }
+
+        void vscode.window.showInformationMessage('Stasher: File copied to the target stash and kept in the original stash.');
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Move file failed — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
   // Delete Files from Stash… (multi-select with preview)
   context.subscriptions.push(
     vscode.commands.registerCommand('stasher.deleteFilesFromStash', async (item: StashTreeItem) => {
@@ -814,9 +893,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (!pick) { return; }
       try {
-        await withConflictHandling(() => mergeStashes(item.stashEntry, pick.stash));
+        const completed = await withConflictHandling(() => mergeStashes(item.stashEntry, pick.stash));
         provider.refresh();
         workingProvider.refresh();
+        if (!completed) {
+          return;
+        }
         void vscode.window.showInformationMessage('Stasher: Stashes merged.');
       } catch (err) {
         void vscode.window.showErrorMessage(
@@ -921,21 +1003,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const picks = allChanges.map((f) => ({
         label: path.basename(f.uri.fsPath),
         description: path.relative(repoRoot, f.uri.fsPath),
-        uri: f.uri,
+        change: f,
       }));
       const selected = await vscode.window.showQuickPick(picks, {
         title: `${item.stashEntry.ref}: ${item.stashEntry.message} (${allChanges.length} file${allChanges.length === 1 ? '' : 's'})`,
         placeHolder: 'Select a file to view its diff — Escape to close',
       });
       if (!selected || !api) { return; }
-      const stashUri = api.toGitUri(selected.uri, item.stashEntry.ref);
-      const baseUri = api.toGitUri(selected.uri, `${item.stashEntry.ref}^1`);
-      void vscode.commands.executeCommand(
-        'vscode.diff',
-        baseUri,
-        stashUri,
-        `${item.stashEntry.ref}: ${selected.label}`,
-        { preview: true } satisfies vscode.TextDocumentShowOptions
+      await showFileDiff(
+        new StashFileTreeItem(selected.change.uri, selected.change.status, item.stashEntry.ref, repoRoot)
       );
     })
   );
@@ -1007,10 +1083,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const totalRemoved = stats.reduce((a, s) => a + s.removed, 0);
       const lines = stats.map((s) => `$(diff-modified) ${s.file}  +${s.added} −${s.removed}`);
       lines.unshift(`**${item.stashEntry.ref}** — ${stats.length} file(s)  total +${totalAdded} −${totalRemoved}`, '');
-      const panel = vscode.window.createOutputChannel('Stasher Stats');
-      panel.clear();
-      panel.appendLine(lines.join('\n'));
-      panel.show(true);
+      stashStatsChannel ??= vscode.window.createOutputChannel('Stasher Stats');
+      stashStatsChannel.clear();
+      stashStatsChannel.appendLine(lines.join('\n'));
+      stashStatsChannel.show(true);
       logger.info('showStashStats', { ref: item.stashEntry.ref, files: stats.length });
     })
   );
@@ -1031,9 +1107,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const picks = matches.map((m) => ({
-        label: `$(search) ${m.file}:${m.line}`,
+        label: m.kind === 'file' ? `$(file) ${m.file}` : `$(search) ${m.file}:${m.line}`,
         description: `${m.stashRef} — ${m.stashMessage}`,
-        detail: m.text.trim(),
+        detail: m.kind === 'file' ? 'File name match' : m.text.trim(),
         match: m,
       }));
       const selected = await vscode.window.showQuickPick(picks, {
@@ -1061,8 +1137,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('stasher.duplicateStash', async (item: StashTreeItem) => {
       if (!(item instanceof StashTreeItem)) { return; }
       try {
-        await withConflictHandling(() => duplicateStash(item.stashEntry));
+        const completed = await withConflictHandling(() => duplicateStash(item.stashEntry));
         provider.refresh();
+        workingProvider.refresh();
+        if (!completed) {
+          return;
+        }
         void vscode.window.showInformationMessage(
           `Stasher: Duplicated “${item.stashEntry.ref}”.`
         );
@@ -1310,9 +1390,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (answer === 'Apply') {
         try {
-          await withConflictHandling(() => applyStash(stash.index));
+          const completed = await withConflictHandling(() => applyStash(stash.index));
           provider.refresh();
           workingProvider.refresh();
+          if (!completed) {
+            continue;
+          }
           logger.info('autoRestore applied', { ref: stash.ref });
         } catch (err) {
           void vscode.window.showErrorMessage(
@@ -1386,5 +1469,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 export function deactivate(): void {
   disposeHunkPicker();
   disposeGit();
+  stashStatsChannel?.dispose();
+  stashStatsChannel = undefined;
   logger.dispose();
 }

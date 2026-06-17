@@ -29,6 +29,7 @@ export interface StashStat {
 }
 
 export interface SearchMatch {
+  kind: 'content' | 'file';
   stashRef: string;
   stashMessage: string;
   file: string;
@@ -425,6 +426,71 @@ export function unstashFiles(entry: StashEntry, absolutePaths: string[]): void {
   }
 }
 
+/**
+ * Safely copies a single file from one stash into another stash.
+ * The source stash is left unchanged; callers can optionally remove it later.
+ */
+export async function copyFileFromStashToStash(
+  sourceEntry: StashEntry,
+  targetEntry: StashEntry,
+  absolutePath: string
+): Promise<void> {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  if (sourceEntry.ref === targetEntry.ref) {
+    throw new Error('Source and target stashes must be different');
+  }
+
+  const gitPath = _api.git.path;
+  const cwd = _repo.rootUri.fsPath;
+
+  // Restore the source file first, then immediately stash just that file so
+  // the target stash can be popped onto a clean working tree.
+  unstashFiles(sourceEntry, [absolutePath]);
+  await _repo.createStash({
+    message: targetEntry.message,
+    includeUntracked: true,
+  });
+
+  // One temporary stash was inserted at {0}, so the target stash shifts by 1.
+  await _repo.popStash(targetEntry.index + 1);
+
+  // Restore the temporarily stashed source file and re-create the target stash
+  // with both its original contents and the copied file.
+  unstashFiles(
+    {
+      ...targetEntry,
+      ref: 'stash@{0}',
+      index: 0,
+    },
+    [absolutePath]
+  );
+
+  const pushResult = spawnSync(
+    gitPath,
+    ['stash', 'push', '--include-untracked', '-m', targetEntry.message, '--', absolutePath],
+    { cwd, encoding: 'utf8' }
+  );
+  if (pushResult.status !== 0) {
+    throw new Error(
+      `git stash push failed — your changes are now in the working tree. ` +
+      `Stash them manually to recover. Details: ${pushResult.stderr?.trim() || 'unknown error'}`
+    );
+  }
+
+  const dropResult = spawnSync(
+    gitPath,
+    ['stash', 'drop', 'stash@{1}'],
+    { cwd, encoding: 'utf8' }
+  );
+  if (dropResult.status !== 0) {
+    void vscode.window.showWarningMessage(
+      'Stasher: File copied, but the temporary stash could not be removed automatically.'
+    );
+  }
+}
+
 // ─── Delete files from a stash (permanently discards those file changes) ──────
 
 /**
@@ -465,6 +531,15 @@ export async function deleteFilesFromStash(
     if (checkoutResult.status !== 0) {
       throw new Error(checkoutResult.stderr?.trim() || 'Failed to restore files to HEAD');
     }
+  }
+
+  const statusResult = spawnSync(
+    gitPath,
+    ['status', '--porcelain', '--untracked-files=all'],
+    { cwd, encoding: 'utf8' }
+  );
+  if (statusResult.status === 0 && !statusResult.stdout.trim()) {
+    return;
   }
 
   // 3. Re-stash remaining changes under the original message
@@ -627,6 +702,7 @@ export function searchInStashes(query: string): SearchMatch[] {
   }
   const stashes = listStashes();
   const matches: SearchMatch[] = [];
+  const needle = query.toLowerCase();
 
   for (const stash of stashes) {
     const result = spawnSync(
@@ -651,11 +727,34 @@ export function searchInStashes(query: string): SearchMatch[] {
       const lineNum = parseInt(rest.substring(secondColon + 1, thirdColon), 10) || 0;
       const text = rest.substring(thirdColon + 1);
       matches.push({
+        kind: 'content',
         stashRef: stash.ref,
         stashMessage: stash.message,
         file,
         line: lineNum,
         text,
+      });
+    }
+
+    const fileListResult = spawnSync(
+      _api.git.path,
+      ['stash', 'show', '--name-only', '--format=', stash.ref],
+      { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
+    );
+    if (fileListResult.status !== 0 || !fileListResult.stdout) {
+      continue;
+    }
+    for (const file of fileListResult.stdout.trim().split('\n').filter(Boolean)) {
+      if (!file.toLowerCase().includes(needle)) {
+        continue;
+      }
+      matches.push({
+        kind: 'file',
+        stashRef: stash.ref,
+        stashMessage: stash.message,
+        file,
+        line: 0,
+        text: 'File name match',
       });
     }
   }

@@ -226,6 +226,29 @@ export async function getStashFiles(stashRef: string): Promise<StashFileGroup> {
   return { tracked, untracked };
 }
 
+/**
+ * Returns relative file paths in a stash via `git stash show --name-only`.
+ */
+export function getStashFilePaths(entry: StashEntry): string[] {
+  if (!_api || !_repo) {
+    return [];
+  }
+  const result = spawnSync(
+    _api.git.path,
+    ['stash', 'show', '--name-only', entry.ref],
+    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' },
+  );
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  return result.stdout.trim().split('\n').filter(Boolean);
+}
+
+/** Lightweight file count for a stash entry. */
+export function getStashFileCount(entry: StashEntry): number {
+  return getStashFilePaths(entry).length;
+}
+
 // ─── Stash operations ─────────────────────────────────────────────────────────
 
 export async function createStash(
@@ -236,6 +259,36 @@ export async function createStash(
     throw new Error('No repository open');
   }
   await _repo.createStash({ message: message || undefined, includeUntracked });
+}
+
+/** Stash only staged (indexed) changes. */
+export async function createStashStaged(message?: string): Promise<void> {
+  if (!_repo) {
+    throw new Error('No repository open');
+  }
+  await _repo.createStash({
+    message: message || undefined,
+    staged: true,
+    includeUntracked: false,
+  });
+}
+
+/** Stash working-tree changes but keep the index intact (`git stash push --keep-index`). */
+export function createStashKeepIndex(message?: string): void {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+  const args = ['stash', 'push', '--keep-index'];
+  if (message) {
+    args.push('-m', message);
+  }
+  const result = spawnSync(_api.git.path, args, {
+    cwd: _repo.rootUri.fsPath,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || 'git stash push --keep-index failed');
+  }
 }
 
 export async function applyStash(index: number): Promise<void> {

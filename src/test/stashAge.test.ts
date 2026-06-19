@@ -2,7 +2,7 @@
  * Tests for stashAge utilities (pure, no VS Code dependency).
  */
 import assert from 'assert';
-import { relativeTime, isStale } from '../stashAge';
+import { relativeTime, isStale, getStaleStashes } from '../stashAge';
 
 function iso(msAgo: number): string {
   return new Date(Date.now() - msAgo).toISOString();
@@ -69,5 +69,18 @@ describe('isStale()', () => {
 
   it('returns false for invalid date', () => {
     assert.strictEqual(isStale('garbage'), false);
+  });
+});
+
+describe('getStaleStashes()', () => {
+  const entries = [
+    { index: 0, ref: 'stash@{0}', hash: 'a', branch: 'main', message: 'fresh', date: iso(60_000) },
+    { index: 1, ref: 'stash@{1}', hash: 'b', branch: 'main', message: 'old', date: iso(10 * 24 * 60 * 60 * 1000) },
+  ];
+
+  it('returns only entries older than threshold', () => {
+    const stale = getStaleStashes(entries, 7);
+    assert.strictEqual(stale.length, 1);
+    assert.strictEqual(stale[0].hash, 'b');
   });
 });

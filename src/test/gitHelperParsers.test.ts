@@ -3,6 +3,7 @@
  * Covers the stash list parser, StashStat parsing, and SearchMatch parsing.
  */
 import assert from 'assert';
+import { stripStashBranchPrefix } from '../stashMessage';
 
 // ─── Test: listStashes format parser ─────────────────────────────────────────
 
@@ -81,6 +82,30 @@ describe('listStashes — parser', () => {
   it('returns unknown branch for unparseable subject', () => {
     const r = parseListStashesOutput('stash@{0}|abc|just some message|2024-01-01 00:00:00 +0000');
     assert.strictEqual(r[0].branch, 'unknown');
+  });
+});
+
+// ─── Test: stripStashBranchPrefix ─────────────────────────────────────────────
+
+describe('stripStashBranchPrefix', () => {
+  it('strips WIP on prefix and keeps user message', () => {
+    assert.strictEqual(stripStashBranchPrefix('WIP on main: feature work'), 'feature work');
+  });
+
+  it('strips On prefix and keeps user message', () => {
+    assert.strictEqual(stripStashBranchPrefix('On dev: bug fix'), 'bug fix');
+  });
+
+  it('returns WIP when only the default prefix remains', () => {
+    assert.strictEqual(stripStashBranchPrefix('WIP on main:'), 'WIP');
+  });
+
+  it('leaves custom messages unchanged', () => {
+    assert.strictEqual(stripStashBranchPrefix('my custom stash note'), 'my custom stash note');
+  });
+
+  it('handles branch names with slashes', () => {
+    assert.strictEqual(stripStashBranchPrefix('WIP on feature/auth: oauth'), 'oauth');
   });
 });
 

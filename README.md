@@ -2,24 +2,45 @@
 
 Stasher is a Visual Studio Code extension for managing Git stashes from the Activity Bar without dropping to the terminal. It gives you a visual workflow for creating, browsing, updating, comparing, and restoring stashes directly inside VS Code.
 
+## Getting started
+
+1. Install **Stasher** from the VS Code Marketplace (or load the `.vsix`).
+2. Open a workspace folder that contains a **Git repository**.
+3. Click the **Stasher** icon in the **Activity Bar** (left sidebar — archive/box icon).
+4. Use **Working Changes** to stash all or selected files; use **Stashes** to browse and restore saved work.
+
+## Screenshots
+
+### Working Changes — check files, then stash
+
+Use the checkboxes to pick which files go into the next stash. Toolbar actions include **Stash All**, **Stash Checked**, **Quick Stash**, **Stash Staged**, and **Stash Working** (keep index).
+
+![Working Changes: checkbox selection and toolbar actions](docs/screenshots/working-changes.png)
+
+### Stashes — browse, filter, and restore
+
+Stashes show `stash@{n}`, age, file count, and optional notes. Enable **Group by Branch** or **Group Files by Directory** from the toolbar. Right-click a stash to apply, pop, diff, pin, or export.
+
+![Stashes: branch grouping, file counts, and expanded file list](docs/screenshots/stashes.png)
+
 ## Features
 
 - Create named or unnamed stashes from the sidebar
-- Partially stash selected files from your working tree
-- Browse existing stashes and inspect the files inside them
-- Apply, pop, rename, or delete stashes
+- **Stash staged only** or **stash working tree** (keep index)
+- Partially stash selected files from your working tree (checkbox selection)
+- Browse existing stashes with file counts, notes, and branch grouping
+- Apply, pop, rename, or delete stashes — with **conflict preview** when files overlap
+- **Review stale stashes** (bulk delete, export, or pin)
 - Create a branch from a stash
-- Add more files into an existing stash
-- Compare stashes and view per-file diffs
-- Export a stash as a `.patch` file
-- Unstash specific files or apply selected hunks
+- Compare stashes, view per-file diffs, and apply selected hunks
+- Export/import `.patch` files, search inside stashes, timeline view
 
 ## Views
 
 Stasher adds an Activity Bar container with two views:
 
-- `Working Changes`: shows the current repository changes and supports checkbox-based partial stashing
-- `Stashes`: lists available stashes and the files contained in each stash
+- **Working Changes**: staged and working-tree files with checkbox-based partial stashing
+- **Stashes**: all stashes with optional branch/directory grouping
 
 ## Requirements
 
@@ -29,34 +50,39 @@ Stasher adds an Activity Bar container with two views:
 
 ## Common Actions
 
-Use the Stasher sidebar to:
+| Category | Command |
+|----------|---------|
+| Create | Create Stash, Quick Stash, Partial Stash, Stash Staged, Stash Working |
+| Restore | Apply Stash, Pop Stash, Unstash Files, Apply Hunks |
+| Browse | Filter Stashes (live), Search Inside Stashes, Open Timeline |
+| Safety | Review Stale Stashes, conflict preview on apply/pop |
+| Manage | Pin, Notes, Labels, Merge/Compare, Export/Import patches |
 
-- `Create Stash`
-- `Partial Stash...`
-- `Quick Stash`
-- `Apply Stash`
-- `Pop Stash`
-- `Create Branch from Stash...`
-- `Unstash Files...`
-- `Merge with Another Stash...`
-- `Compare with Another Stash...`
+Most actions are in the view toolbar or item context menus. Use the **Command Palette** (`Stasher:`) for full discoverability.
 
-Most actions are available from the view toolbar or from item context menus in the tree.
+## Settings
+
+Key settings under **Stasher**:
+
+- `stasher.groupByBranch` / `stasher.groupFilesByDirectory` / `stasher.groupWorkingByDirectory`
+- `stasher.staleThresholdDays` — when stashes are considered stale (default 7)
+- `stasher.showFileCountsInTree` / `stasher.showNotesInTree`
 
 ## Development
 
 ```bash
 npm install
 npm run build
+npm test
 ```
 
-Helpful scripts:
+Press **F5** to launch the Extension Development Host. Regenerate README images with:
 
-- `npm run build` builds the extension with esbuild
-- `npm run watch` rebuilds on file changes
-- `npm run typecheck` runs TypeScript type-checking without emitting files
+```bash
+python3 scripts/generate-readme-screenshots.py
+```
 
-To package for publishing, run the normal VS Code extension publishing flow after building.
+See [scripts/capture-screenshots.md](scripts/capture-screenshots.md) for capturing real VS Code screenshots from F5.
 
 ## License
 

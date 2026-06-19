@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stasher README Screenshots</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1e1e1e;
+      color: #cccccc;
+      font: 13px/20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 20px;
+    }
+    .shot { margin-bottom: 28px; }
+    .activity-hint {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: #9d9d9d;
+      font-size: 12px;
+    }
+    .activity-icon {
+      width: 28px; height: 28px;
+      background: #37373d;
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      color: #e8e8e8; font-size: 14px;
+    }
+    .panel {
+      width: 380px;
+      background: #252526;
+      border: 1px solid #3c3c3c;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .toolbar {
+      display: flex;
+      gap: 4px;
+      padding: 6px 8px;
+      border-bottom: 1px solid #3c3c3c;
+      background: #2d2d2d;
+    }
+    .tb { color: #cccccc; font-size: 14px; padding: 2px 4px; opacity: 0.85; }
+    .view-title {
+      padding: 8px 12px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #bbbbbb;
+      text-transform: uppercase;
+    }
+    .tree { padding: 2px 0 10px; }
+    .row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 1px 8px 1px 10px; min-height: 22px;
+    }
+    .row.group { font-weight: 600; }
+    .row.child { padding-left: 26px; }
+    .row.grandchild { padding-left: 42px; }
+    .chevron { color: #858585; width: 12px; flex-shrink: 0; }
+    .icon { width: 16px; text-align: center; flex-shrink: 0; }
+    .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .desc { color: #9d9d9d; font-size: 12px; margin-left: 6px; flex-shrink: 0; }
+    .check { color: #3794ff; width: 16px; text-align: center; }
+    .m { color: #e2c08d; } .a { color: #73c991; }
+    .badge {
+      margin-left: auto;
+      background: #0078d4;
+      color: #fff;
+      font-size: 11px;
+      padding: 0 6px;
+      border-radius: 10px;
+      line-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="working-changes" class="shot">
+    <div class="activity-hint">
+      <div class="activity-icon">📦</div>
+      Activity Bar → Stasher → Working Changes
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <span class="tb">⊞</span><span class="tb">↓</span><span class="tb">✓</span><span class="tb">+</span><span class="tb">⚡</span>
+        <span class="badge">3</span>
+      </div>
+      <div class="view-title">Working Changes</div>
+      <div class="tree">
+        <div class="row group"><span class="chevron">▾</span><span class="icon">●</span><span class="label">Staged Changes</span><span class="desc">1 file</span></div>
+        <div class="row child"><span class="check">☑</span><span class="icon m">M</span><span class="label">extension.ts</span><span class="desc">src · M</span></div>
+        <div class="row group"><span class="chevron">▾</span><span class="icon">✎</span><span class="label">Working Changes</span><span class="desc">2 files</span></div>
+        <div class="row child"><span class="check">☑</span><span class="icon m">M</span><span class="label">stashProvider.ts</span><span class="desc">src · M</span></div>
+        <div class="row child"><span class="check">☐</span><span class="icon a">A</span><span class="label">README.md</span><span class="desc">A</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="stashes" class="shot">
+    <div class="activity-hint">
+      <div class="activity-icon">📦</div>
+      Activity Bar → Stasher → Stashes
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <span class="tb">+</span><span class="tb">📁</span><span class="tb">↻</span><span class="tb">🔍</span><span class="tb">☷</span>
+        <span class="badge">3</span>
+      </div>
+      <div class="view-title">Stashes</div>
+      <div class="tree">
+        <div class="row group"><span class="chevron">▾</span><span class="icon">⎇</span><span class="label">main</span><span class="desc">2 stashes</span></div>
+        <div class="row child"><span class="chevron">▸</span><span class="icon">📦</span><span class="label">auth refactor</span><span class="desc">stash@{0} · 2d ago · 4 files</span></div>
+        <div class="row child"><span class="chevron">▸</span><span class="icon">📦</span><span class="label">WIP</span><span class="desc">stash@{1} · 5d ago · 2 files</span></div>
+        <div class="row group"><span class="chevron">▾</span><span class="icon">⎇</span><span class="label">feature/ui</span><span class="desc">1 stash</span></div>
+        <div class="row child"><span class="chevron">▾</span><span class="icon">📦</span><span class="label">sidebar polish</span><span class="desc">stash@{0} · 1w ago · 2 files · "v0.1"</span></div>
+        <div class="row grandchild"><span class="icon m">M</span><span class="label">stashProvider.ts</span><span class="desc">src · M</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,3 +1,5 @@
+import type { StashEntry } from './gitHelper';
+
 /**
  * Human-readable relative time from an ISO-8601 date string.
  * e.g. "2h ago", "3 days ago", "just now"
@@ -30,4 +32,9 @@ export function isStale(isoDate: string, thresholdDays = 7): boolean {
   }
   const diffDay = (Date.now() - then) / (1000 * 60 * 60 * 24);
   return diffDay > thresholdDays;
+}
+
+/** Returns stashes older than the threshold. */
+export function getStaleStashes(entries: StashEntry[], thresholdDays = 7): StashEntry[] {
+  return entries.filter((e) => isStale(e.date, thresholdDays));
 }

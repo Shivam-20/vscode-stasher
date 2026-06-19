@@ -1,8 +1,8 @@
 {
   "name": "stasher",
   "displayName": "Stasher",
-  "description": "Simple, visual git stash management in the Activity Bar — create, browse, apply, pop, drop, diff and branch stashes without touching a terminal.",
-  "version": "0.0.5",
+  "description": "Visual git stash management — staged/working stash, conflict preview, stale review, partial stash, hunk apply, and a polished Activity Bar UI.",
+  "version": "0.1.0",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",
@@ -58,7 +58,7 @@
     "viewsWelcome": [
       {
         "view": "stasher.workingChanges",
-        "contents": "No changes detected.\n\nMake edits to see staged and working-tree files here.\nYou can then stash all or just the checked ones."
+        "contents": "No changes detected.\n\nMake edits to see staged and working-tree files here.\nYou can then stash all or just the checked ones.\n\n[$(zap) Quick Stash](command:stasher.quickStash)\n[$(plus) Create Stash](command:stasher.createStash)\n[$(files) Partial Stash (select files)](command:stasher.partialStash)"
       },
       {
         "view": "stasher.stashList",
@@ -325,15 +325,63 @@
       },
       {
         "command": "stasher.toggleGroupByBranch",
-        "title": "Toggle Group by Branch",
+        "title": "Group by Branch",
         "category": "Stasher",
         "icon": "$(list-tree)"
       },
       {
+        "command": "stasher.toggleGroupByBranchActive",
+        "title": "Group by Branch",
+        "category": "Stasher",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "stasher.toggleGroupByDir",
-        "title": "Toggle Group Files by Directory",
+        "title": "Group Files by Directory",
         "category": "Stasher",
         "icon": "$(folder-library)"
+      },
+      {
+        "command": "stasher.toggleGroupByDirActive",
+        "title": "Group Files by Directory",
+        "category": "Stasher",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "stasher.stashStaged",
+        "title": "Stash Staged Changes",
+        "category": "Stasher",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "stasher.stashWorking",
+        "title": "Stash Working Tree (Keep Index)",
+        "category": "Stasher",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "stasher.checkAllInGroup",
+        "title": "Check All in Group",
+        "category": "Stasher",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "stasher.uncheckAllInGroup",
+        "title": "Uncheck All in Group",
+        "category": "Stasher",
+        "icon": "$(close-all)"
+      },
+      {
+        "command": "stasher.invertGroup",
+        "title": "Invert Selection in Group",
+        "category": "Stasher",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "stasher.reviewStaleStashes",
+        "title": "Review Stale Stashes…",
+        "category": "Stasher",
+        "icon": "$(warning)"
       }
     ],
     "menus": {
@@ -360,8 +408,23 @@
         },
         {
           "command": "stasher.toggleGroupByBranch",
-          "when": "view == stasher.stashList",
+          "when": "view == stasher.stashList && !stasher.groupByBranchActive",
           "group": "navigation@7"
+        },
+        {
+          "command": "stasher.toggleGroupByBranchActive",
+          "when": "view == stasher.stashList && stasher.groupByBranchActive",
+          "group": "navigation@7"
+        },
+        {
+          "command": "stasher.toggleGroupByDir",
+          "when": "view == stasher.stashList && !stasher.groupByDirActive",
+          "group": "navigation@10"
+        },
+        {
+          "command": "stasher.toggleGroupByDirActive",
+          "when": "view == stasher.stashList && stasher.groupByDirActive",
+          "group": "navigation@10"
         },
         {
           "command": "stasher.importPatch",
@@ -402,9 +465,78 @@
           "command": "stasher.quickStash",
           "when": "view == stasher.workingChanges",
           "group": "navigation@4"
+        },
+        {
+          "command": "stasher.stashStaged",
+          "when": "view == stasher.workingChanges",
+          "group": "navigation@5"
+        },
+        {
+          "command": "stasher.stashWorking",
+          "when": "view == stasher.workingChanges",
+          "group": "navigation@6"
+        },
+        {
+          "command": "stasher.reviewStaleStashes",
+          "when": "view == stasher.stashList && stasher.hasStaleStashes",
+          "group": "navigation@11"
         }
       ],
+      "commandPalette": [
+        { "command": "stasher.searchInStashes", "when": "true" },
+        { "command": "stasher.reviewStaleStashes", "when": "true" },
+        { "command": "stasher.stashStaged", "when": "true" },
+        { "command": "stasher.stashWorking", "when": "true" },
+        { "command": "stasher.stashAndSwitch", "when": "true" },
+        { "command": "stasher.diffVsWorkingTree", "when": "true" },
+        { "command": "stasher.openTimeline", "when": "true" },
+        { "command": "stasher.importPatch", "when": "true" },
+        { "command": "stasher.exportPatches", "when": "true" },
+        { "command": "stasher.filterStashes", "when": "true" },
+        { "command": "stasher.partialStash", "when": "true" },
+        { "command": "stasher.quickStash", "when": "true" }
+      ],
       "view/item/context": [
+        {
+          "command": "stasher.checkAllInGroup",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupStaged",
+          "group": "1_check@1"
+        },
+        {
+          "command": "stasher.uncheckAllInGroup",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupStaged",
+          "group": "1_check@2"
+        },
+        {
+          "command": "stasher.invertGroup",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupStaged",
+          "group": "1_check@3"
+        },
+        {
+          "command": "stasher.checkAllInGroup",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupWorking",
+          "group": "1_check@1"
+        },
+        {
+          "command": "stasher.uncheckAllInGroup",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupWorking",
+          "group": "1_check@2"
+        },
+        {
+          "command": "stasher.invertGroup",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupWorking",
+          "group": "1_check@3"
+        },
+        {
+          "command": "stasher.stashStaged",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupStaged",
+          "group": "2_stash@1"
+        },
+        {
+          "command": "stasher.stashWorking",
+          "when": "view == stasher.workingChanges && viewItem == changeGroupWorking",
+          "group": "2_stash@1"
+        },
         {
           "command": "stasher.showStashDetails",
           "when": "view == stasher.stashList && viewItem == stashEntry",
@@ -623,12 +755,39 @@
         "stasher.groupByBranch": {
           "type": "boolean",
           "default": false,
-          "description": "Group stashes in the tree by the branch they were created on."
+          "order": 10,
+          "markdownDescription": "**Display:** Group stashes in the tree by the branch they were created on."
         },
         "stasher.groupFilesByDirectory": {
           "type": "boolean",
           "default": false,
-          "description": "Group files inside a stash by their parent directory."
+          "order": 20,
+          "markdownDescription": "**Display:** Group files inside a stash by their parent directory."
+        },
+        "stasher.groupWorkingByDirectory": {
+          "type": "boolean",
+          "default": false,
+          "order": 30,
+          "markdownDescription": "**Display:** Group files in Working Changes by their parent directory."
+        },
+        "stasher.showFileCountsInTree": {
+          "type": "boolean",
+          "default": true,
+          "order": 50,
+          "markdownDescription": "**Display:** Show file counts on collapsed stash rows."
+        },
+        "stasher.showNotesInTree": {
+          "type": "boolean",
+          "default": true,
+          "order": 60,
+          "markdownDescription": "**Display:** Show a short note snippet on stash rows when a note exists."
+        },
+        "stasher.staleThresholdDays": {
+          "type": "number",
+          "default": 7,
+          "minimum": 1,
+          "order": 40,
+          "markdownDescription": "**Behavior:** Stashes older than this many days are marked stale and appear in Review Stale Stashes."
         }
       }
     }

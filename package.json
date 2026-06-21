@@ -2,7 +2,7 @@
   "name": "stasher",
   "displayName": "Stasher",
   "description": "Visual git stash management — staged/working stash, conflict preview, stale review, partial stash, hunk apply, and a polished Activity Bar UI.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",

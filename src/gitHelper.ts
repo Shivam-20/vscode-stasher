@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { Status } from './gitEnums';
+import {
+  mapStashStatusChar,
+  parseStashShowNameStatus,
+} from './stashFileListing';
 import type { API, GitExtension, Repository, Change } from './git';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -198,6 +204,63 @@ export function listStashes(): StashEntry[] {
 
 // ─── Stash file listing ───────────────────────────────────────────────────────
 
+function stashObjectExists(
+  gitPath: string,
+  cwd: string,
+  ref: string,
+  relPath: string,
+): boolean {
+  const result = spawnSync(gitPath, ['cat-file', '-e', `${ref}:${relPath}`], { cwd });
+  return result.status === 0;
+}
+
+function listStashFilesSync(stashRef: string): StashFileGroup {
+  if (!_api || !_repo) {
+    return { tracked: [], untracked: [] };
+  }
+
+  const gitPath = _api.git.path;
+  const cwd = _repo.rootUri.fsPath;
+  const result = spawnSync(
+    gitPath,
+    ['stash', 'show', '--name-status', '--include-untracked', stashRef],
+    { cwd, encoding: 'utf8' },
+  );
+  if (result.status !== 0 || !result.stdout?.trim()) {
+    return { tracked: [], untracked: [] };
+  }
+
+  const tracked: Change[] = [];
+  const untracked: Change[] = [];
+
+  for (const entry of parseStashShowNameStatus(result.stdout)) {
+    const relPath = entry.path.replace(/\\/g, '/');
+    const oldPath = entry.oldPath?.replace(/\\/g, '/');
+    let status = mapStashStatusChar(entry.statusChar);
+
+    if (entry.statusChar === 'A') {
+      const inStash = stashObjectExists(gitPath, cwd, stashRef, relPath);
+      status = inStash ? Status.INDEX_ADDED : Status.UNTRACKED;
+    }
+
+    const uri = vscode.Uri.file(path.join(cwd, relPath));
+    const originalUri = oldPath
+      ? vscode.Uri.file(path.join(cwd, oldPath))
+      : uri;
+    const renameUri =
+      entry.statusChar === 'R' || entry.statusChar === 'C' ? uri : undefined;
+    const change: Change = { uri, originalUri, renameUri, status };
+
+    if (status === Status.UNTRACKED) {
+      untracked.push(change);
+    } else {
+      tracked.push(change);
+    }
+  }
+
+  return { tracked, untracked };
+}
+
 /**
  * Returns the tracked and untracked file changes contained in a stash.
  */
@@ -206,7 +269,12 @@ export async function getStashFiles(stashRef: string): Promise<StashFileGroup> {
     return { tracked: [], untracked: [] };
   }
 
-  // Tracked: diff between HEAD-at-stash-time (^1) and the stash WIP commit
+  const fromGit = listStashFilesSync(stashRef);
+  if (fromGit.tracked.length > 0 || fromGit.untracked.length > 0) {
+    return fromGit;
+  }
+
+  // Fallback when `git stash show` returns nothing (e.g. empty stash)
   let tracked: Change[] = [];
   try {
     tracked = await _repo.diffBetween(`${stashRef}^1`, stashRef);
@@ -214,20 +282,18 @@ export async function getStashFiles(stashRef: string): Promise<StashFileGroup> {
     // repo too old or stash has no parent — fall back to empty
   }
 
-  // Untracked: diff between HEAD-at-stash-time (^1) and the untracked commit (^3)
-  // ^3 only exists when the stash was created with --include-untracked
   let untracked: Change[] = [];
   try {
     untracked = await _repo.diffBetween(`${stashRef}^1`, `${stashRef}^3`);
   } catch {
-    // No untracked commit — this is normal and expected for most stashes
+    // No untracked commit — normal for stashes without --include-untracked
   }
 
   return { tracked, untracked };
 }
 
 /**
- * Returns relative file paths in a stash via `git stash show --name-only`.
+ * Returns relative file paths in a stash via `git stash show --name-only --include-untracked`.
  */
 export function getStashFilePaths(entry: StashEntry): string[] {
   if (!_api || !_repo) {
@@ -235,7 +301,7 @@ export function getStashFilePaths(entry: StashEntry): string[] {
   }
   const result = spawnSync(
     _api.git.path,
-    ['stash', 'show', '--name-only', entry.ref],
+    ['stash', 'show', '--name-only', '--include-untracked', entry.ref],
     { cwd: _repo.rootUri.fsPath, encoding: 'utf8' },
   );
   if (result.status !== 0 || !result.stdout) {
@@ -791,7 +857,7 @@ export function searchInStashes(query: string): SearchMatch[] {
 
     const fileListResult = spawnSync(
       _api.git.path,
-      ['stash', 'show', '--name-only', '--format=', stash.ref],
+      ['stash', 'show', '--name-only', '--include-untracked', '--format=', stash.ref],
       { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
     );
     if (fileListResult.status !== 0 || !fileListResult.stdout) {

@@ -4,6 +4,7 @@
  */
 import assert from 'assert';
 import { stripStashBranchPrefix } from '../stashMessage';
+import { parseStashNameStatusLine, parseStashShowNameStatus } from '../stashFileListing';
 
 // ─── Test: listStashes format parser ─────────────────────────────────────────
 
@@ -177,5 +178,32 @@ describe('searchInStashes — grep line parser', () => {
     const r = parseGrepLine('stash@{1}', 'msg', line);
     assert.strictEqual(r.file, 'index.ts');
     assert.strictEqual(r.line, 1);
+  });
+});
+
+// ─── Test: stash show --name-status parser ────────────────────────────────────
+
+describe('parseStashShowNameStatus', () => {
+  const SAMPLE = [
+    'M\tsrc/foo.ts',
+    'A\tdocs/index.md',
+    'D\tdocs/cron-semaphore.md',
+    'R100\tdocs/cron-semaphore.md\tdocs/cron-semaphore/guide.md',
+  ].join('\n');
+
+  it('parses modified, added, deleted, and renamed rows', () => {
+    const rows = parseStashShowNameStatus(SAMPLE);
+    assert.strictEqual(rows.length, 4);
+    assert.strictEqual(rows[0].statusChar, 'M');
+    assert.strictEqual(rows[0].path, 'src/foo.ts');
+    assert.strictEqual(rows[1].statusChar, 'A');
+    assert.strictEqual(rows[3].statusChar, 'R');
+    assert.strictEqual(rows[3].oldPath, 'docs/cron-semaphore.md');
+    assert.strictEqual(rows[3].path, 'docs/cron-semaphore/guide.md');
+  });
+
+  it('parseStashNameStatusLine returns undefined for blank lines', () => {
+    assert.strictEqual(parseStashNameStatusLine(''), undefined);
+    assert.strictEqual(parseStashNameStatusLine('invalid'), undefined);
   });
 });

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.1
+
+### Fixes
+- List all files in stashes created with untracked content (`--include-untracked`), including file counts, tree expansion, and stash search
+
 ## 0.1.0
 
 ### Features

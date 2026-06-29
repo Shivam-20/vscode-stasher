@@ -140,11 +140,17 @@ function _wireRepoListeners(context: vscode.ExtensionContext): void {
 }
 
 function _attachRepo(repo: Repository, context: vscode.ExtensionContext): void {
-  if (!_repo) {
+  const isFirstRepo = !_repo;
+  if (isFirstRepo) {
     _repo = repo;
   }
   repo.state.onDidChange(scheduleRefresh, null, context.subscriptions);
   scheduleRefresh();
+  // Fire immediately on first repo attach so the tree populates
+  // (the initial provider.refresh() may have run before any repo was available)
+  if (isFirstRepo) {
+    _onDidChangeStashes.fire();
+  }
 }
 
 // ─── Public accessors ─────────────────────────────────────────────────────────

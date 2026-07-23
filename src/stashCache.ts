@@ -36,8 +36,28 @@ export class StashCache {
     this._fileCounts.set(entry.hash, paths.length);
   }
 
-  clear(): void {
+  clearChildren(): void {
     this._children.clear();
+  }
+
+  pruneCounts(validHashes: Set<string>): void {
+    for (const hash of this._fileCounts.keys()) {
+      if (!validHashes.has(hash)) {
+        this._fileCounts.delete(hash);
+      }
+    }
+  }
+
+  prunePaths(validRefs: Set<string>): void {
+    for (const ref of this._filePaths.keys()) {
+      if (!validRefs.has(ref)) {
+        this._filePaths.delete(ref);
+      }
+    }
+  }
+
+  clear(): void {
+    this.clearChildren();
     this._fileCounts.clear();
     this._filePaths.clear();
   }

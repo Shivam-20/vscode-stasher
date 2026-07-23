@@ -3,6 +3,7 @@ import * as path from 'path';
 import { statusLabel, statusThemeIcon } from './statusHelpers';
 import { getRepository, onDidChangeStashes } from './gitHelper';
 import { fileTreeLabel } from './treeLabels';
+import { normalizeRepoPath } from './pathUtils';
 import type { Change } from './git';
 
 // ─── Tree items ───────────────────────────────────────────────────────────────
@@ -257,7 +258,7 @@ export class WorkingChangesProvider implements vscode.TreeDataProvider<AnyItem> 
     }
     const root = repo.rootUri.fsPath;
     const all = [...repo.state.indexChanges, ...repo.state.workingTreeChanges];
-    return all.map((c) => path.relative(root, c.uri.fsPath));
+    return all.map((c) => normalizeRepoPath(path.relative(root, c.uri.fsPath)));
   }
 
   private _buildDirGroups(

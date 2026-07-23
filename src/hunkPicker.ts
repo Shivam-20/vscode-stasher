@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { getStashFileContent } from './gitHelper';
+import { Status } from './gitEnums';
 import type { StashFileTreeItem } from './stashProvider';
 
 /** Tracks temp file paths so we can clean them up. */
@@ -44,7 +45,7 @@ export function openHunkPicker(
   // Read the stash version of the file
   let stashContent: string;
   try {
-    stashContent = getStashFileContent(item.stashRef, relPath);
+    stashContent = getStashFileContent(item.stashRef, relPath, item.fileStatus);
   } catch (err) {
     void vscode.window.showErrorMessage(
       `Stasher: Could not read stash file — ${

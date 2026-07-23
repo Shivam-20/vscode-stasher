@@ -30,6 +30,7 @@ import {
   importPatchAsStash,
   getStashDiffVsWorkingTree,
   copyFileFromStashToStash,
+  findStashByHash,
   dispose as disposeGit,
 } from './gitHelper';
 import { StashTreeDataProvider, StashTreeItem, StashFileTreeItem } from './stashProvider';
@@ -862,7 +863,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       try {
         const completed = await withConflictHandling(() =>
-          copyFileFromStashToStash(sourceEntry, picked.stash, item.absolutePath)
+          copyFileFromStashToStash(
+            sourceEntry,
+            picked.stash,
+            item.absolutePath,
+            item.fileStatus,
+          )
         );
         provider.refresh();
         workingProvider.refresh();
@@ -877,7 +883,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
 
         if (removeAnswer === 'Remove from Original') {
-          await deleteFilesFromStash(sourceEntry, [item.absolutePath]);
+          const freshSource = findStashByHash(sourceEntry.hash);
+          if (!freshSource) {
+            void vscode.window.showWarningMessage(
+              'Stasher: File copied, but the source stash could not be found to remove the original file.',
+            );
+            return;
+          }
+          await deleteFilesFromStash(freshSource, [item.absolutePath]);
           provider.refresh();
           workingProvider.refresh();
           void vscode.window.showInformationMessage('Stasher: File moved to the target stash.');

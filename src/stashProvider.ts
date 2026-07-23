@@ -220,6 +220,7 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
   private _showFileCountsInTree = true;
   private readonly _context: vscode.ExtensionContext;
   private readonly _loadingRefs = new Set<string>();
+  private _countDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(context: vscode.ExtensionContext, expansion: TreeExpansionState) {
     this._context = context;
@@ -227,7 +228,7 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
     this._readConfig();
     context.subscriptions.push(
       onDidChangeStashes(() => {
-        this._cache.clear();
+        this._cache.clearChildren();
         this.refresh();
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
@@ -250,6 +251,11 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
 
   refresh(): void {
     this._stashes = listStashes();
+    const validHashes = new Set(this._stashes.map((s) => s.hash));
+    const validRefs = new Set(this._stashes.map((s) => s.ref));
+    this._cache.pruneCounts(validHashes);
+    this._cache.prunePaths(validRefs);
+
     const validIds = new Set(
       this._stashes.map((s) => `stash-${s.hash}`),
     );
@@ -258,7 +264,16 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
     }
     this._expansion.prune(validIds);
     this._onDidChangeTreeData.fire();
-    void this._loadFileCountsInBackground();
+    this._scheduleFileCounts();
+  }
+
+  private _scheduleFileCounts(): void {
+    if (this._countDebounceTimer) {
+      clearTimeout(this._countDebounceTimer);
+    }
+    this._countDebounceTimer = setTimeout(() => {
+      void this._loadFileCountsInBackground();
+    }, 400);
   }
 
   setFilter(q: string): void {
@@ -457,6 +472,9 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
   }
 
   dispose(): void {
+    if (this._countDebounceTimer) {
+      clearTimeout(this._countDebounceTimer);
+    }
     this._cache.clear();
     this._onDidChangeTreeData.dispose();
   }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getStashFileContent } from './gitHelper';
+import { Status } from './gitEnums';
 import type { StashFileTreeItem } from './stashProvider';
 
 /**
@@ -28,8 +29,11 @@ export class StashPeekProvider implements vscode.TextDocumentContentProvider {
       return '';
     }
 
+    const fileStatus =
+      uri.fragment === 'untracked' ? Status.UNTRACKED : undefined;
+
     try {
-      return getStashFileContent(stashRef, relPath);
+      return getStashFileContent(stashRef, relPath, fileStatus);
     } catch {
       return `// Stasher: Could not load content for ${stashRef}:${relPath}`;
     }
@@ -46,7 +50,10 @@ export class StashPeekProvider implements vscode.TextDocumentContentProvider {
 export function buildPeekUri(item: StashFileTreeItem, repoRoot: string): vscode.Uri {
   const relPath = path.relative(repoRoot, item.absolutePath).replace(/\\/g, '/');
   const encodedRef = encodeURIComponent(item.stashRef);
-  return vscode.Uri.parse(`${PEEK_SCHEME}://${encodedRef}/${relPath}`);
+  const fragment = item.fileStatus === Status.UNTRACKED ? 'untracked' : '';
+  return vscode.Uri.parse(
+    `${PEEK_SCHEME}://${encodedRef}/${relPath}${fragment ? `#${fragment}` : ''}`,
+  );
 }
 /**
  * Builds a stasher-peek:// URI for an empty file version.

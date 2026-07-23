@@ -3,30 +3,9 @@
  * Covers the stash list parser, StashStat parsing, and SearchMatch parsing.
  */
 import assert from 'assert';
+import { parseListStashesOutput } from '../stashListParser';
 import { stripStashBranchPrefix } from '../stashMessage';
 import { parseStashNameStatusLine, parseStashShowNameStatus } from '../stashFileListing';
-
-// ─── Test: listStashes format parser ─────────────────────────────────────────
-
-// We inline the parser logic to test it without spawning git
-function parseListStashesOutput(stdout: string) {
-  return stdout
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line, i) => {
-      const pipeIndex1 = line.indexOf('|');
-      const pipeIndex2 = line.indexOf('|', pipeIndex1 + 1);
-      const pipeIndex3 = line.indexOf('|', pipeIndex2 + 1);
-      const ref     = line.substring(0, pipeIndex1);
-      const hash    = line.substring(pipeIndex1 + 1, pipeIndex2);
-      const subject = line.substring(pipeIndex2 + 1, pipeIndex3);
-      const date    = line.substring(pipeIndex3 + 1).trim();
-      const branchMatch = subject.match(/^(?:WIP on|On) ([^:]+):/);
-      const branch = branchMatch?.[1] ?? 'unknown';
-      return { index: i, ref, hash, branch, message: subject, date };
-    });
-}
 
 describe('listStashes — parser', () => {
   const SAMPLE = [
@@ -83,6 +62,14 @@ describe('listStashes — parser', () => {
   it('returns unknown branch for unparseable subject', () => {
     const r = parseListStashesOutput('stash@{0}|abc|just some message|2024-01-01 00:00:00 +0000');
     assert.strictEqual(r[0].branch, 'unknown');
+  });
+
+  it('handles pipe characters inside the stash message', () => {
+    const r = parseListStashesOutput(
+      'stash@{0}|abc123|note with | pipe|2024-05-01 10:00:00 +0530',
+    );
+    assert.strictEqual(r[0].message, 'note with | pipe');
+    assert.match(r[0].date, /2024-05-01/);
   });
 });
 

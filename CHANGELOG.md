@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.1
+
+### Fixes
+- Fix move/copy file between stashes leaving other target files in the working tree
+- Re-resolve stash entries by hash after copy so remove-from-original targets the correct stash
+- Read untracked stash files from `stash^3` in peek, hunk picker, and checkout flows
+- Normalize paths in conflict-overlap detection so Windows separators match correctly
+- Parse stash list messages that contain `|` characters without corrupting the subject or date
+- Fix stash list not loading on initial extension activation
+- Include untracked files in patch export and duplicate detection
+
+### Performance
+- Batch `ls-tree` lookups when classifying added vs untracked stash files
+- Keep file-count cache across refreshes; only invalidate expanded children and stale hashes
+- Debounce background file-count loading (400 ms)
+- Avoid double refresh when the first repository attaches on activation
+
+### UX
+- Sidebar polish: stash ref in descriptions, basename labels, branch sorting, view badges, filter message line, Working Changes grouping icons, and optional directory grouping
+
 ## 0.1.1
 
 ### Fixes

@@ -15,4 +15,11 @@ describe('getOverlappingFiles', () => {
       [],
     );
   });
+
+  it('matches paths across Windows and POSIX separators', () => {
+    assert.deepStrictEqual(
+      getOverlappingFiles(['src/a.ts'], ['src\\a.ts']),
+      ['src/a.ts'],
+    );
+  });
 });

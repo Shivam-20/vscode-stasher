@@ -6,6 +6,8 @@ import {
   mapStashStatusChar,
   parseStashShowNameStatus,
 } from './stashFileListing';
+import { normalizeRepoPath } from './pathUtils';
+import { parseListStashesOutput } from './stashListParser';
 import type { API, GitExtension, Repository, Change } from './git';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -145,11 +147,12 @@ function _attachRepo(repo: Repository, context: vscode.ExtensionContext): void {
     _repo = repo;
   }
   repo.state.onDidChange(scheduleRefresh, null, context.subscriptions);
-  scheduleRefresh();
   // Fire immediately on first repo attach so the tree populates
   // (the initial provider.refresh() may have run before any repo was available)
   if (isFirstRepo) {
     _onDidChangeStashes.fire();
+  } else {
+    scheduleRefresh();
   }
 }
 
@@ -175,49 +178,46 @@ export function listStashes(): StashEntry[] {
     return [];
   }
 
-  const gitPath = _api.git.path;
-  const repoRoot = _repo.rootUri.fsPath;
-
   const result = spawnSync(
-    gitPath,
+    _api.git.path,
     ['stash', 'list', '--format=%gd|%H|%gs|%ai'],
-    { cwd: repoRoot, encoding: 'utf8' }
+    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' },
   );
 
   if (result.status !== 0 || !result.stdout) {
     return [];
   }
 
-  return result.stdout
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line, i) => {
-      const pipeIndex1 = line.indexOf('|');
-      const pipeIndex2 = line.indexOf('|', pipeIndex1 + 1);
-      const pipeIndex3 = line.indexOf('|', pipeIndex2 + 1);
-      const ref = line.substring(0, pipeIndex1);
-      const hash = line.substring(pipeIndex1 + 1, pipeIndex2);
-      const subject = line.substring(pipeIndex2 + 1, pipeIndex3);
-      const date = line.substring(pipeIndex3 + 1).trim();
+  return parseListStashesOutput(result.stdout);
+}
 
-      const branchMatch = subject.match(/^(?:WIP on|On) ([^:]+):/);
-      const branch = branchMatch?.[1] ?? 'unknown';
-
-      return { index: i, ref, hash, branch, message: subject, date };
-    });
+/** Re-resolve a stash entry by commit hash after list mutations. */
+export function findStashByHash(hash: string): StashEntry | undefined {
+  return listStashes().find((e) => e.hash === hash);
 }
 
 // ─── Stash file listing ───────────────────────────────────────────────────────
 
-function stashObjectExists(
+function listStashTreePaths(
   gitPath: string,
   cwd: string,
-  ref: string,
-  relPath: string,
-): boolean {
-  const result = spawnSync(gitPath, ['cat-file', '-e', `${ref}:${relPath}`], { cwd });
-  return result.status === 0;
+  treeRef: string,
+): Set<string> {
+  const result = spawnSync(
+    gitPath,
+    ['ls-tree', '-r', '--name-only', treeRef],
+    { cwd, encoding: 'utf8' },
+  );
+  if (result.status !== 0 || !result.stdout) {
+    return new Set();
+  }
+  return new Set(
+    result.stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(normalizeRepoPath),
+  );
 }
 
 function listStashFilesSync(stashRef: string): StashFileGroup {
@@ -238,14 +238,15 @@ function listStashFilesSync(stashRef: string): StashFileGroup {
 
   const tracked: Change[] = [];
   const untracked: Change[] = [];
+  const trackedTreePaths = listStashTreePaths(gitPath, cwd, stashRef);
 
   for (const entry of parseStashShowNameStatus(result.stdout)) {
-    const relPath = entry.path.replace(/\\/g, '/');
-    const oldPath = entry.oldPath?.replace(/\\/g, '/');
+    const relPath = normalizeRepoPath(entry.path);
+    const oldPath = entry.oldPath ? normalizeRepoPath(entry.oldPath) : undefined;
     let status = mapStashStatusChar(entry.statusChar);
 
     if (entry.statusChar === 'A') {
-      const inStash = stashObjectExists(gitPath, cwd, stashRef, relPath);
+      const inStash = trackedTreePaths.has(relPath);
       status = inStash ? Status.INDEX_ADDED : Status.UNTRACKED;
     }
 
@@ -313,7 +314,11 @@ export function getStashFilePaths(entry: StashEntry): string[] {
   if (result.status !== 0 || !result.stdout) {
     return [];
   }
-  return result.stdout.trim().split('\n').filter(Boolean);
+  return result.stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map(normalizeRepoPath);
 }
 
 /** Lightweight file count for a stash entry. */
@@ -525,29 +530,96 @@ export async function quickStash(): Promise<void> {
 
 // ─── Unstash specific files (stash stays intact) ─────────────────────────────
 
+function toRelativePath(cwd: string, absolutePath: string): string {
+  const rel = absolutePath.startsWith(cwd)
+    ? absolutePath.slice(cwd.length).replace(/^[\\/]/, '')
+    : absolutePath;
+  return normalizeRepoPath(rel);
+}
+
+function parseStatusPath(line: string): string {
+  const raw = line.slice(3).trim();
+  const arrow = raw.indexOf(' -> ');
+  return normalizeRepoPath(arrow >= 0 ? raw.slice(arrow + 4) : raw);
+}
+
+function assertCleanWorkingTreeOutside(
+  gitPath: string,
+  cwd: string,
+  allowedPaths: Set<string>,
+): void {
+  const result = spawnSync(
+    gitPath,
+    ['status', '--porcelain', '--untracked-files=all'],
+    { cwd, encoding: 'utf8' },
+  );
+  if (result.status !== 0 || !result.stdout.trim()) {
+    return;
+  }
+  const dirtyOutside = result.stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map(parseStatusPath)
+    .filter((p) => !allowedPaths.has(p));
+  if (dirtyOutside.length > 0) {
+    const preview = dirtyOutside.slice(0, 3).join(', ');
+    const suffix = dirtyOutside.length > 3 ? ` (+${dirtyOutside.length - 3} more)` : '';
+    throw new Error(
+      `Working tree has unrelated changes (${preview}${suffix}). Commit or stash them first.`,
+    );
+  }
+}
+
+function checkoutStashFile(
+  gitPath: string,
+  cwd: string,
+  stashRef: string,
+  relPath: string,
+  fileStatus?: Status,
+): void {
+  const refs =
+    fileStatus === Status.UNTRACKED
+      ? [`${stashRef}^3`, stashRef]
+      : [stashRef, `${stashRef}^3`];
+  let lastError = '';
+  for (const ref of refs) {
+    const result = spawnSync(
+      gitPath,
+      ['checkout', ref, '--', relPath],
+      { cwd, encoding: 'utf8' },
+    );
+    if (result.status === 0) {
+      return;
+    }
+    lastError = result.stderr?.trim() || `git checkout ${ref} -- ${relPath} failed`;
+  }
+  throw new Error(lastError || 'git checkout from stash failed');
+}
+
 /**
  * Restores specific files from a stash into the working tree WITHOUT removing
  * them from the stash. Uses `git checkout stash@{N} -- <relPath>` for each file.
  */
-export function unstashFiles(entry: StashEntry, absolutePaths: string[]): void {
+export function unstashFiles(
+  entry: StashEntry,
+  absolutePaths: string[],
+  fileStatus?: Status,
+): void {
   if (!_api || !_repo) {
     throw new Error('No repository open');
   }
   const gitPath = _api.git.path;
   const cwd = _repo.rootUri.fsPath;
 
-  const relPaths = absolutePaths.map((p) => {
-    const rel = p.startsWith(cwd) ? p.slice(cwd.length).replace(/^[\\/]/, '') : p;
-    return rel;
-  });
-
-  const result = spawnSync(
-    gitPath,
-    ['checkout', entry.ref, '--', ...relPaths],
-    { cwd, encoding: 'utf8' }
-  );
-  if (result.status !== 0) {
-    throw new Error(result.stderr?.trim() || 'git checkout from stash failed');
+  for (const absPath of absolutePaths) {
+    checkoutStashFile(
+      gitPath,
+      cwd,
+      entry.ref,
+      toRelativePath(cwd, absPath),
+      fileStatus,
+    );
   }
 }
 
@@ -558,7 +630,8 @@ export function unstashFiles(entry: StashEntry, absolutePaths: string[]): void {
 export async function copyFileFromStashToStash(
   sourceEntry: StashEntry,
   targetEntry: StashEntry,
-  absolutePath: string
+  absolutePath: string,
+  fileStatus?: Status,
 ): Promise<void> {
   if (!_api || !_repo) {
     throw new Error('No repository open');
@@ -569,50 +642,37 @@ export async function copyFileFromStashToStash(
 
   const gitPath = _api.git.path;
   const cwd = _repo.rootUri.fsPath;
+  const relPath = toRelativePath(cwd, absolutePath);
+  const targetPaths = getStashFilePaths(targetEntry);
+  const pushPaths = [...new Set([...targetPaths, relPath])];
+  const involvedPaths = new Set(pushPaths);
 
-  // Restore the source file first, then immediately stash just that file so
-  // the target stash can be popped onto a clean working tree.
-  unstashFiles(sourceEntry, [absolutePath]);
-  await _repo.createStash({
-    message: targetEntry.message,
-    includeUntracked: true,
-  });
+  assertCleanWorkingTreeOutside(gitPath, cwd, involvedPaths);
 
-  // One temporary stash was inserted at {0}, so the target stash shifts by 1.
-  await _repo.popStash(targetEntry.index + 1);
+  const targetHash = targetEntry.hash;
+  const freshTarget = findStashByHash(targetHash);
+  if (!freshTarget) {
+    throw new Error('Target stash no longer exists');
+  }
 
-  // Restore the temporarily stashed source file and re-create the target stash
-  // with both its original contents and the copied file.
-  unstashFiles(
-    {
-      ...targetEntry,
-      ref: 'stash@{0}',
-      index: 0,
-    },
-    [absolutePath]
-  );
+  checkoutStashFile(gitPath, cwd, sourceEntry.ref, relPath, fileStatus);
+  await _repo.applyStash(freshTarget.index);
 
   const pushResult = spawnSync(
     gitPath,
-    ['stash', 'push', '--include-untracked', '-m', targetEntry.message, '--', absolutePath],
-    { cwd, encoding: 'utf8' }
+    ['stash', 'push', '--include-untracked', '-m', targetEntry.message, '--', ...pushPaths],
+    { cwd, encoding: 'utf8' },
   );
   if (pushResult.status !== 0) {
     throw new Error(
       `git stash push failed — your changes are now in the working tree. ` +
-      `Stash them manually to recover. Details: ${pushResult.stderr?.trim() || 'unknown error'}`
+      `Stash them manually to recover. Details: ${pushResult.stderr?.trim() || 'unknown error'}`,
     );
   }
 
-  const dropResult = spawnSync(
-    gitPath,
-    ['stash', 'drop', 'stash@{1}'],
-    { cwd, encoding: 'utf8' }
-  );
-  if (dropResult.status !== 0) {
-    void vscode.window.showWarningMessage(
-      'Stasher: File copied, but the temporary stash could not be removed automatically.'
-    );
+  const oldTarget = findStashByHash(targetHash);
+  if (oldTarget) {
+    await _repo.dropStash(oldTarget.index);
   }
 }
 
@@ -729,8 +789,8 @@ export function exportStashAsPatch(entry: StashEntry): string {
   }
   const result = spawnSync(
     _api.git.path,
-    ['stash', 'show', '-p', entry.ref],
-    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
+    ['stash', 'show', '-p', '--include-untracked', entry.ref],
+    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' },
   );
   if (result.status !== 0) {
     throw new Error(result.stderr?.trim() || 'git stash show failed');
@@ -744,19 +804,31 @@ export function exportStashAsPatch(entry: StashEntry): string {
  * Returns the raw content of a file as it exists inside a stash commit.
  * relPath must be relative to the repo root (forward slashes).
  */
-export function getStashFileContent(stashRef: string, relPath: string): string {
+export function getStashFileContent(
+  stashRef: string,
+  relPath: string,
+  fileStatus?: Status,
+): string {
   if (!_api || !_repo) {
     throw new Error('No repository open');
   }
-  const result = spawnSync(
-    _api.git.path,
-    ['show', `${stashRef}:${relPath}`],
-    { cwd: _repo.rootUri.fsPath, encoding: 'utf8' }
-  );
-  if (result.status !== 0) {
-    throw new Error(result.stderr?.trim() || `git show ${stashRef}:${relPath} failed`);
+  const refs =
+    fileStatus === Status.UNTRACKED
+      ? [`${stashRef}^3`, stashRef]
+      : [stashRef, `${stashRef}^3`];
+  let lastError = '';
+  for (const ref of refs) {
+    const result = spawnSync(
+      _api.git.path,
+      ['show', `${ref}:${relPath}`],
+      { cwd: _repo.rootUri.fsPath, encoding: 'utf8' },
+    );
+    if (result.status === 0) {
+      return result.stdout;
+    }
+    lastError = result.stderr?.trim() || `git show ${ref}:${relPath} failed`;
   }
-  return result.stdout;
+  throw new Error(lastError);
 }
 
 // ─── Create stash for a single file ──────────────────────────────────────────

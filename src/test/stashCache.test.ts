@@ -33,4 +33,20 @@ describe('StashCache', () => {
     assert.strictEqual(cache.getChildren('stash@{0}', false), undefined);
     assert.strictEqual(cache.getFileCount('abc123'), undefined);
   });
+
+  it('clearChildren keeps file counts', () => {
+    const cache = new StashCache();
+    cache.setChildren('stash@{0}', false, ['child']);
+    cache.setFilePathsForEntry(entry, ['a.ts', 'b.ts']);
+    cache.clearChildren();
+    assert.strictEqual(cache.getChildren('stash@{0}', false), undefined);
+    assert.strictEqual(cache.getFileCount('abc123'), 2);
+  });
+
+  it('pruneCounts removes stale hashes only', () => {
+    const cache = new StashCache();
+    cache.setFilePathsForEntry(entry, ['a.ts']);
+    cache.pruneCounts(new Set(['other']));
+    assert.strictEqual(cache.getFileCount('abc123'), undefined);
+  });
 });

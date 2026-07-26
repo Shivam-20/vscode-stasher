@@ -1,13 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-  <!-- Handle at top of lid -->
-  <rect x="9.5" y="0.75" width="5" height="2.5" rx="1.25"/>
-  <!-- Lid (filled, overlaps body top to seal it visually) -->
-  <rect x="2" y="2.5" width="20" height="7" rx="1.5"/>
-  <!-- Body outline (open container beneath lid) -->
-  <rect x="3" y="9" width="18" height="14" rx="1.5"
-        fill="none" stroke="currentColor" stroke-width="1.5"/>
-  <!-- Stash entry bar 1: widest = most recent stash -->
-  <rect x="7" y="13.5" width="10" height="1.75" rx="0.875"/>
-  <!-- Stash entry bar 2: narrower = older stash -->
-  <rect x="7" y="18"   width="7"  height="1.75" rx="0.875"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <!--
+    Stasher — Activity Bar icon
+    Concept: a treasure chest with a curved lid, lock, and
+    visible stash entries inside. Monochrome currentColor.
+  -->
+  <g fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M4 7 C4 2 20 2 20 7" stroke-width="2.2"/>
+    <rect x="4" y="7" width="16" height="13" rx="1.5" stroke-width="2.2"/>
+    <line x1="2.5" y1="7" x2="21.5" y2="7" stroke-width="2.2"/>
+    <circle cx="12" cy="11.5" r="1.8" stroke-width="2.2"/>
+    <line x1="7" y1="15" x2="17" y2="15" stroke-width="2.2"/>
+    <line x1="7" y1="18" x2="12" y2="18" stroke-width="2.2"/>
+  </g>
 </svg>

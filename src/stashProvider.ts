@@ -5,13 +5,17 @@ import { Status } from './gitEnums';
 import { relativeTime, isStale } from './stashAge';
 import { stripStashBranchPrefix } from './stashMessage';
 import { fileTreeLabel, sortBranchNames } from './treeLabels';
-import { isStashPinned, getStashNote, getStashLabel, LABEL_EMOJI } from './stashNotes';
+import {
+  isStashPinned, isStashArchived,
+  getStashNote, getStashLabel, LABEL_EMOJI,
+} from './stashNotes';
 import { StashCache } from './stashCache';
 import { TreeExpansionState, collapsibleState } from './treeExpansionState';
 import {
   listStashes,
   getStashFiles,
   getStashFilePaths,
+  getStashStats,
   getRepository,
   onDidChangeStashes,
   type StashEntry,
@@ -31,6 +35,8 @@ function buildStashDescription(
   note: string | undefined,
   showNotes: boolean,
   label?: ReturnType<typeof getStashLabel>,
+  diffStat?: { added: number; removed: number },
+  showDiffStat?: boolean,
 ): string {
   const age = relativeTime(entry.date);
   const emoji = label ? LABEL_EMOJI[label] : '';
@@ -38,6 +44,10 @@ function buildStashDescription(
 
   if (showFileCounts && fileCount !== undefined) {
     parts.push(`${fileCount} file${fileCount !== 1 ? 's' : ''}`);
+  }
+
+  if (showDiffStat && diffStat) {
+    parts.push(`+${diffStat.added}-${diffStat.removed}`);
   }
 
   if (!groupedByBranch) {
@@ -95,6 +105,7 @@ export class StashTreeItem extends vscode.TreeItem {
   constructor(
     entry: StashEntry,
     pinned: boolean,
+    archived: boolean,
     note: string | undefined,
     label: ReturnType<typeof getStashLabel> | undefined,
     groupedByBranch: boolean,
@@ -103,6 +114,8 @@ export class StashTreeItem extends vscode.TreeItem {
     showFileCounts: boolean,
     showNotes: boolean,
     expansion: TreeExpansionState,
+    diffStat?: { added: number; removed: number },
+    showDiffStat?: boolean,
   ) {
     const displayMessage = groupedByBranch ? stripStashBranchPrefix(entry.message) : entry.message;
     const msg = displayMessage.length > 55 ? displayMessage.substring(0, 52) + '\u2026' : displayMessage;
@@ -117,16 +130,14 @@ export class StashTreeItem extends vscode.TreeItem {
     const age = relativeTime(entry.date);
     const stale = isStale(entry.date, staleThreshold);
     this.description = buildStashDescription(
-      entry,
-      groupedByBranch,
-      fileCount,
-      showFileCounts,
-      note,
-      showNotes,
-      label,
+      entry, groupedByBranch, fileCount, showFileCounts, note, showNotes, label,
+      diffStat, showDiffStat,
     );
 
-    if (pinned) {
+    if (archived) {
+      this.contextValue = pinned ? 'stashEntryArchivedPinned' : 'stashEntryArchived';
+      this.iconPath = new vscode.ThemeIcon('archive', new vscode.ThemeColor('charts.gray'));
+    } else if (pinned) {
       this.iconPath = new vscode.ThemeIcon('pinned', new vscode.ThemeColor('charts.yellow'));
       this.contextValue = 'stashEntryPinned';
     } else if (stale) {
@@ -142,8 +153,10 @@ export class StashTreeItem extends vscode.TreeItem {
       `_Branch: ${entry.branch}_\n_Created: ${age} (${entry.date})_\n`,
       `_Hash: ${entry.hash}_`,
       fileCount !== undefined ? `\n_Files: ${fileCount}_` : '',
+      diffStat ? `\n_+${diffStat.added} / -${diffStat.removed}_` : '',
       note ? `\n\n\u{1F4DD} _Note: ${note}_` : '',
       pinned ? '\n\n\u{1F4CC} _Pinned_' : '',
+      archived ? '\n\n\u{1F4E6} _Archived_' : '',
       label ? `\n\n${LABEL_EMOJI[label]} _${label}_` : '',
       stale ? `\n\n\u26A0\uFE0F _Older than ${staleThreshold} days_` : '',
     ];
@@ -204,6 +217,9 @@ type AnyTreeItem =
   | StashLoadingItem
   | StashErrorItem;
 
+export type SortField = 'date' | 'branch' | 'message' | 'fileCount' | 'label';
+export type SortOrder = 'asc' | 'desc';
+
 export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeItem> {
   private readonly _onDidChangeTreeData =
     new vscode.EventEmitter<AnyTreeItem | undefined | null | void>();
@@ -213,11 +229,16 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
   private readonly _expansion: TreeExpansionState;
   private _stashes: StashEntry[] = [];
   private _filterQuery = '';
+  private _showArchived = false;
   private _groupByBranch = false;
   private _groupByDir = false;
   private _staleThreshold = 7;
   private _showNotesInTree = true;
   private _showFileCountsInTree = true;
+  private _showDiffStatInTree = false;
+  private _sortBy: SortField = 'date';
+  private _sortOrder: SortOrder = 'desc';
+  private readonly _checkedIds = new Set<string>();
   private readonly _context: vscode.ExtensionContext;
   private readonly _loadingRefs = new Set<string>();
   private _countDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -247,6 +268,9 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
     this._staleThreshold = cfg.get<number>('staleThresholdDays', 7);
     this._showNotesInTree = cfg.get<boolean>('showNotesInTree', true);
     this._showFileCountsInTree = cfg.get<boolean>('showFileCountsInTree', true);
+    this._showDiffStatInTree = cfg.get<boolean>('showDiffStatInTree', false);
+    this._sortBy = cfg.get<SortField>('sortBy', 'date');
+    this._sortOrder = cfg.get<SortOrder>('sortOrder', 'desc');
   }
 
   refresh(): void {
@@ -255,6 +279,7 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
     const validRefs = new Set(this._stashes.map((s) => s.ref));
     this._cache.pruneCounts(validHashes);
     this._cache.prunePaths(validRefs);
+    this._cache.pruneDiffStats(validHashes);
 
     const validIds = new Set(
       this._stashes.map((s) => `stash-${s.hash}`),
@@ -273,6 +298,7 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
     }
     this._countDebounceTimer = setTimeout(() => {
       void this._loadFileCountsInBackground();
+      void this._loadDiffStatsInBackground();
     }, 400);
   }
 
@@ -286,8 +312,14 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
     this._onDidChangeTreeData.fire();
   }
 
+  toggleShowArchived(): void {
+    this._showArchived = !this._showArchived;
+    this._onDidChangeTreeData.fire();
+  }
+
   get hasFilter(): boolean { return this._filterQuery.length > 0; }
   get filterQuery(): string { return this._filterQuery; }
+  get showArchived(): boolean { return this._showArchived; }
   get groupByBranch(): boolean { return this._groupByBranch; }
   get groupByDir(): boolean { return this._groupByDir; }
   get staleThresholdDays(): number { return this._staleThreshold; }
@@ -301,11 +333,18 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
   get staleUnpinnedCount(): number {
     const ctx = this._context;
     return this._stashes.filter(
-      (s) => isStale(s.date, this._staleThreshold) && !isStashPinned(ctx, s.hash),
+      (s) => isStale(s.date, this._staleThreshold) && !isStashPinned(ctx, s.hash) && !isStashArchived(ctx, s.hash),
     ).length;
   }
 
-  getTreeItem(el: AnyTreeItem): vscode.TreeItem { return el; }
+  getTreeItem(el: AnyTreeItem): vscode.TreeItem {
+    if (el instanceof StashTreeItem) {
+      el.checkboxState = this._checkedIds.has(el.id!)
+        ? vscode.TreeItemCheckboxState.Checked
+        : vscode.TreeItemCheckboxState.Unchecked;
+    }
+    return el;
+  }
 
   async getChildren(element?: AnyTreeItem): Promise<AnyTreeItem[]> {
     if (!element) {
@@ -332,25 +371,82 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
   }
 
   private _getVisibleStashes(): StashEntry[] {
-    if (!this._filterQuery) {
-      return this._stashes;
+    const ctx = this._context;
+    let filtered = this._stashes;
+
+    if (!this._showArchived) {
+      filtered = filtered.filter((s) => !isStashArchived(ctx, s.hash));
     }
-    return this._stashes.filter((s) =>
-      s.message.toLowerCase().includes(this._filterQuery) ||
-      s.branch.toLowerCase().includes(this._filterQuery) ||
-      s.ref.toLowerCase().includes(this._filterQuery),
+
+    if (this._filterQuery) {
+      const q = this._filterQuery;
+      filtered = filtered.filter((s) =>
+        s.message.toLowerCase().includes(q) ||
+        s.branch.toLowerCase().includes(q) ||
+        s.ref.toLowerCase().includes(q),
+      );
+    }
+
+    return filtered;
+  }
+
+  private _sortStashes(stashes: StashEntry[]): StashEntry[] {
+    const ctx = this._context;
+    const { _sortBy: sortBy, _sortOrder: sortOrder } = this;
+
+    // Build lookup maps once to avoid repeated workspaceState reads
+    // inside the O(n log n) comparator
+    const pinnedSet = new Set(
+      stashes.filter((s) => isStashPinned(ctx, s.hash)).map((s) => s.hash),
     );
+    const labelCache = new Map<string, string>();
+    for (const s of stashes) {
+      labelCache.set(s.hash, getStashLabel(ctx, s.hash) ?? '');
+    }
+
+    // Field-specific comparison (ascending); direction applied below
+    const fieldCmp = (a: StashEntry, b: StashEntry): number => {
+      let result = 0;
+      switch (sortBy) {
+        case 'date':
+          result = a.date.localeCompare(b.date);
+          break;
+        case 'branch':
+          result = a.branch.localeCompare(b.branch);
+          break;
+        case 'message':
+          result = a.message.localeCompare(b.message);
+          break;
+        case 'fileCount': {
+          const ca = this._cache.getFileCount(a.hash) ?? 0;
+          const cb = this._cache.getFileCount(b.hash) ?? 0;
+          result = ca - cb;
+          break;
+        }
+        case 'label':
+          result = (labelCache.get(a.hash) ?? '').localeCompare(labelCache.get(b.hash) ?? '');
+          break;
+        default:
+          result = a.date.localeCompare(b.date);
+      }
+      // Negate for descending so newest/largest comes first
+      return sortOrder === 'desc' ? -result : result;
+    };
+
+    // Unified comparator: pinned-first, then by selected field
+    return [...stashes].sort((a, b) => {
+      const pinDiff = (pinnedSet.has(b.hash) ? 1 : 0) - (pinnedSet.has(a.hash) ? 1 : 0);
+      return pinDiff !== 0 ? pinDiff : fieldCmp(a, b);
+    });
   }
 
   private _buildStashItems(stashes: StashEntry[]): StashTreeItem[] {
     const ctx = this._context;
-    const sorted = [
-      ...stashes.filter((s) => isStashPinned(ctx, s.hash)),
-      ...stashes.filter((s) => !isStashPinned(ctx, s.hash)),
-    ];
+    const sorted = this._sortStashes(stashes);
     return sorted.map((s) => new StashTreeItem(
       s,
       isStashPinned(ctx, s.hash),
+      isStashArchived(ctx, s.hash),
       getStashNote(ctx, s.hash),
       getStashLabel(ctx, s.hash),
       this._groupByBranch,
@@ -359,6 +455,8 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
       this._showFileCountsInTree,
       this._showNotesInTree,
       this._expansion,
+      this._showDiffStatInTree ? this._cache.getDiffStat(s.hash) : undefined,
+      this._showDiffStatInTree,
     ));
   }
 
@@ -469,6 +567,64 @@ export class StashTreeDataProvider implements vscode.TreeDataProvider<AnyTreeIte
       this._cache.setFilePathsForEntry(entry, paths);
     }
     this._onDidChangeTreeData.fire();
+  }
+
+  // ── Checkbox handling ──────────────────────────────────────────────────────
+
+  handleCheckboxChange(
+    items: ReadonlyArray<[AnyTreeItem, vscode.TreeItemCheckboxState]>,
+  ): void {
+    for (const [item, state] of items) {
+      if (!(item instanceof StashTreeItem)) {
+        continue;
+      }
+      if (state === vscode.TreeItemCheckboxState.Checked) {
+        this._checkedIds.add(item.id!);
+      } else {
+        this._checkedIds.delete(item.id!);
+      }
+    }
+  }
+
+  /** Returns stash entries for all checked items in the current view. */
+  getCheckedStashes(): StashEntry[] {
+    return this._stashes.filter(
+      (s) => this._checkedIds.has(`stash-${s.hash}`),
+    );
+  }
+
+  // ── Diff stat background loading ───────────────────────────────────────────
+
+  private async _loadDiffStatsInBackground(): Promise<void> {
+    if (!this._showDiffStatInTree) {
+      return;
+    }
+    const ctx = this._context;
+    const pending = this._stashes.filter(
+      (s) => !isStashArchived(ctx, s.hash) && this._cache.getDiffStat(s.hash) === undefined,
+    );
+    if (pending.length === 0) {
+      return;
+    }
+    // Process in batches and yield to the event loop between batches
+    // so the extension host doesn't freeze on repos with many stashes
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+      const batch = pending.slice(i, i + BATCH_SIZE);
+      for (const entry of batch) {
+        try {
+          const stats = getStashStats(entry);
+          this._cache.setDiffStat(entry.hash, stats);
+        } catch {
+          // skip entries that fail
+        }
+      }
+      // Fire after each batch so UI updates incrementally
+      this._onDidChangeTreeData.fire();
+      if (i + BATCH_SIZE < pending.length) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
   }
 
   dispose(): void {

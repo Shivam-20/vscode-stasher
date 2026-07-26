@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <!--
+    Stasher — brand icon (marketplace / README)
+    Concept: a treasure chest with a curved lid, lock, and
+    glowing gold stash entries inside. Mirrors the activity-bar
+    icon at full size.
+  -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e1e2e"/>
+      <stop offset="1" stop-color="#11111b"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="goldBar" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="interior" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000000" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.5"/>
+    </linearGradient>
+    <filter id="chestGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="entryGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#tile)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="51.5" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+
+  <!-- Subtle halo -->
+  <circle cx="128" cy="128" r="96" fill="#ffffff" fill-opacity="0.04"/>
+
+  <!-- Interior cutout (dark recess behind the stash bars) -->
+  <rect x="56" y="105" width="144" height="75" rx="10" fill="url(#interior)"/>
+
+  <!-- Chest body -->
+  <g fill="none" stroke="#f8f9fa" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="36" y="65" width="184" height="140" rx="16" stroke-width="6"/>
+  </g>
+
+  <!-- Curved lid -->
+  <path d="M36 65 C36 20 220 20 220 65" fill="none" stroke="#f8f9fa" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Lid rim (slightly wider than the body) -->
+  <line x1="32" y1="65" x2="224" y2="65" stroke="#f8f9fa" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Gold lock -->
+  <circle cx="128" cy="98" r="14" fill="none" stroke="url(#gold)" stroke-width="5" stroke-linecap="round"/>
+  <rect x="125" y="102" width="6" height="10" rx="2" fill="url(#gold)"/>
+
+  <!-- Stash entries (gold bars) -->
+  <g filter="url(#entryGlow)">
+    <rect x="68" y="112" width="120" height="24" rx="8" fill="url(#goldBar)"/>
+    <rect x="68" y="148" width="82" height="24" rx="8" fill="url(#goldBar)"/>
+  </g>
+
+  <!-- Frosted-glass accent rings -->
+  <g filter="url(#entryGlow)">
+    <rect x="68" y="112" width="120" height="24" rx="8" stroke="#ffffff" stroke-opacity="0.2" stroke-width="2" fill="none"/>
+    <rect x="68" y="148" width="82" height="24" rx="8" stroke="#ffffff" stroke-opacity="0.2" stroke-width="2" fill="none"/>
+  </g>
+</svg>

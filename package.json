@@ -2,7 +2,7 @@
   "name": "stasher",
   "displayName": "Stasher",
   "description": "Visual git stash management — staged/working stash, conflict preview, stale review, partial stash, hunk apply, and a polished Activity Bar UI.",
-  "version": "0.2.1",
+  "version": "0.4.0",
   "publisher": "tryToDEv",
   "repository": {
     "type": "git",
@@ -382,6 +382,128 @@
         "title": "Review Stale Stashes…",
         "category": "Stasher",
         "icon": "$(warning)"
+      },
+      {
+        "command": "stasher.archiveStash",
+        "title": "Archive Stash",
+        "category": "Stasher",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "stasher.unarchiveStash",
+        "title": "Unarchive Stash",
+        "category": "Stasher",
+        "icon": "$(restore)"
+      },
+      {
+        "command": "stasher.toggleArchiveFilter",
+        "title": "Show/Hide Archived Stashes",
+        "category": "Stasher",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "stasher.cleanupStaleStashes",
+        "title": "Clean Up Stale Stashes (Archive)",
+        "category": "Stasher",
+        "icon": "$(broom)"
+      },
+      {
+        "command": "stasher.applySelectedStashes",
+        "title": "Apply Checked Stashes",
+        "category": "Stasher"
+      },
+      {
+        "command": "stasher.dropSelectedStashes",
+        "title": "Delete Checked Stashes",
+        "category": "Stasher"
+      },
+      {
+        "command": "stasher.duplicateSelectedStashes",
+        "title": "Duplicate Checked Stashes",
+        "category": "Stasher"
+      },
+      {
+        "command": "stasher.exportSelectedStashes",
+        "title": "Export Checked Stashes as Patches…",
+        "category": "Stasher"
+      },
+      {
+        "command": "stasher.rebaseStash",
+        "title": "Rebase Stash onto HEAD",
+        "category": "Stasher",
+        "icon": "$(git-rebase)"
+      },
+      {
+        "command": "stasher.enableAutoRestoreOnCheckout",
+        "title": "Enable Auto-Restore on Branch Checkout",
+        "category": "Stasher",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "stasher.reviewStaleStashes",
+        "title": "Review Stale Stashes…",
+        "category": "Stasher",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "stasher.archiveStash",
+        "title": "Archive Stash",
+        "category": "Stasher",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "stasher.unarchiveStash",
+        "title": "Unarchive Stash",
+        "category": "Stasher",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "stasher.toggleArchiveFilter",
+        "title": "Toggle Archived Visibility",
+        "category": "Stasher",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "stasher.cleanupStaleStashes",
+        "title": "Cleanup Stale Stashes",
+        "category": "Stasher",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stasher.applySelectedStashes",
+        "title": "Apply Selected Stashes",
+        "category": "Stasher",
+        "icon": "$(check)"
+      },
+      {
+        "command": "stasher.dropSelectedStashes",
+        "title": "Drop Selected Stashes",
+        "category": "Stasher",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stasher.exportSelectedStashes",
+        "title": "Export Selected Stashes",
+        "category": "Stasher",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "stasher.rebaseStash",
+        "title": "Rebase onto HEAD…",
+        "category": "Stasher",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "stasher.enableAutoRestoreOnCheckout",
+        "title": "Enable Auto-Restore on Branch Checkout",
+        "category": "Stasher",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "stasher.disableAutoRestoreOnCheckout",
+        "title": "Disable Auto-Restore on Branch Checkout",
+        "category": "Stasher",
+        "icon": "$(sync-ignored)"
       }
     ],
     "menus": {
@@ -480,21 +602,104 @@
           "command": "stasher.reviewStaleStashes",
           "when": "view == stasher.stashList && stasher.hasStaleStashes",
           "group": "navigation@11"
+        },
+        {
+          "command": "stasher.toggleArchiveFilter",
+          "when": "view == stasher.stashList && !stasher.showArchived",
+          "group": "navigation@12"
+        },
+        {
+          "command": "stasher.toggleArchiveFilter",
+          "when": "view == stasher.stashList && stasher.showArchived",
+          "group": "navigation@12"
+        },
+        {
+          "command": "stasher.cleanupStaleStashes",
+          "when": "view == stasher.stashList",
+          "group": "navigation@13"
         }
       ],
       "commandPalette": [
-        { "command": "stasher.searchInStashes", "when": "true" },
-        { "command": "stasher.reviewStaleStashes", "when": "true" },
-        { "command": "stasher.stashStaged", "when": "true" },
-        { "command": "stasher.stashWorking", "when": "true" },
-        { "command": "stasher.stashAndSwitch", "when": "true" },
-        { "command": "stasher.diffVsWorkingTree", "when": "true" },
-        { "command": "stasher.openTimeline", "when": "true" },
-        { "command": "stasher.importPatch", "when": "true" },
-        { "command": "stasher.exportPatches", "when": "true" },
-        { "command": "stasher.filterStashes", "when": "true" },
-        { "command": "stasher.partialStash", "when": "true" },
-        { "command": "stasher.quickStash", "when": "true" }
+        {
+          "command": "stasher.searchInStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.reviewStaleStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.stashStaged",
+          "when": "true"
+        },
+        {
+          "command": "stasher.stashWorking",
+          "when": "true"
+        },
+        {
+          "command": "stasher.stashAndSwitch",
+          "when": "true"
+        },
+        {
+          "command": "stasher.diffVsWorkingTree",
+          "when": "true"
+        },
+        {
+          "command": "stasher.openTimeline",
+          "when": "true"
+        },
+        {
+          "command": "stasher.importPatch",
+          "when": "true"
+        },
+        {
+          "command": "stasher.exportPatches",
+          "when": "true"
+        },
+        {
+          "command": "stasher.filterStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.partialStash",
+          "when": "true"
+        },
+        {
+          "command": "stasher.quickStash",
+          "when": "true"
+        },
+        {
+          "command": "stasher.cleanupStaleStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.applySelectedStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.dropSelectedStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.duplicateSelectedStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.exportSelectedStashes",
+          "when": "true"
+        },
+        {
+          "command": "stasher.rebaseStash",
+          "when": "true"
+        },
+        {
+          "command": "stasher.enableAutoRestoreOnCheckout",
+          "when": "true"
+        },
+        {
+          "command": "stasher.disableAutoRestoreOnCheckout",
+          "when": "true"
+        }
       ],
       "view/item/context": [
         {
@@ -746,6 +951,206 @@
           "command": "stasher.toggleGroupByDir",
           "when": "view == stasher.stashList && viewItem == stashFile",
           "group": "2_copy@2"
+        },
+        {
+          "command": "stasher.archiveStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "6_pin@5"
+        },
+        {
+          "command": "stasher.archiveStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "6_pin@5"
+        },
+        {
+          "command": "stasher.unarchiveStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "6_pin@5"
+        },
+        {
+          "command": "stasher.unarchiveStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "6_pin@5"
+        },
+        {
+          "command": "stasher.rebaseStash",
+          "when": "view == stasher.stashList && viewItem == stashEntry",
+          "group": "1_apply@3"
+        },
+        {
+          "command": "stasher.rebaseStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryPinned",
+          "group": "1_apply@3"
+        },
+        {
+          "command": "stasher.rebaseStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "1_apply@3"
+        },
+        {
+          "command": "stasher.rebaseStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "1_apply@3"
+        },
+        {
+          "command": "stasher.popStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "1_apply@1"
+        },
+        {
+          "command": "stasher.popStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "1_apply@1"
+        },
+        {
+          "command": "stasher.applyStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "1_apply@2"
+        },
+        {
+          "command": "stasher.applyStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "1_apply@2"
+        },
+        {
+          "command": "stasher.dropStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "3_manage@2"
+        },
+        {
+          "command": "stasher.dropStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "3_manage@2"
+        },
+        {
+          "command": "stasher.showStashDetails",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "inline@2"
+        },
+        {
+          "command": "stasher.showStashDetails",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "inline@2"
+        },
+        {
+          "command": "stasher.exportPatch",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "5_export@1"
+        },
+        {
+          "command": "stasher.exportPatch",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "5_export@1"
+        },
+        {
+          "command": "stasher.diffVsWorkingTree",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "4_partial@4"
+        },
+        {
+          "command": "stasher.diffVsWorkingTree",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "4_partial@4"
+        },
+        {
+          "command": "stasher.duplicateStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "3_manage@3"
+        },
+        {
+          "command": "stasher.duplicateStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "3_manage@3"
+        },
+        {
+          "command": "stasher.editStashNote",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "6_pin@2"
+        },
+        {
+          "command": "stasher.editStashNote",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "6_pin@2"
+        },
+        {
+          "command": "stasher.setStashLabel",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "6_pin@4"
+        },
+        {
+          "command": "stasher.setStashLabel",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "6_pin@4"
+        },
+        {
+          "command": "stasher.pinStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "6_pin@1"
+        },
+        {
+          "command": "stasher.unpinStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "6_pin@1"
+        },
+        {
+          "command": "stasher.toggleAutoRestore",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "6_pin@3"
+        },
+        {
+          "command": "stasher.toggleAutoRestore",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "6_pin@3"
+        },
+        {
+          "command": "stasher.renameStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "stasher.renameStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "stasher.unstashFiles",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "4_partial@1"
+        },
+        {
+          "command": "stasher.unstashFiles",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "4_partial@1"
+        },
+        {
+          "command": "stasher.deleteFilesFromStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "4_partial@2"
+        },
+        {
+          "command": "stasher.deleteFilesFromStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "4_partial@2"
+        },
+        {
+          "command": "stasher.mergeStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "4_partial@3"
+        },
+        {
+          "command": "stasher.mergeStash",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "4_partial@3"
+        },
+        {
+          "command": "stasher.createBranch",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchived",
+          "group": "2_branch@1"
+        },
+        {
+          "command": "stasher.createBranch",
+          "when": "view == stasher.stashList && viewItem == stashEntryArchivedPinned",
+          "group": "2_branch@1"
         }
       ]
     },
@@ -788,6 +1193,58 @@
           "minimum": 1,
           "order": 40,
           "markdownDescription": "**Behavior:** Stashes older than this many days are marked stale and appear in Review Stale Stashes."
+        },
+        "stasher.autoCleanupStale": {
+          "type": "boolean",
+          "default": false,
+          "order": 41,
+          "markdownDescription": "**Behavior:** Automatically archive stashes older than `staleThresholdDays` on activation and after stash list changes. Pinned stashes are excluded."
+        },
+        "stasher.autoRestoreOnCheckout": {
+          "type": "boolean",
+          "default": false,
+          "order": 42,
+          "markdownDescription": "**Behavior:** When switching to a branch that has a matching stash, prompt to apply it."
+        },
+        "stasher.showDiffStatInTree": {
+          "type": "boolean",
+          "default": false,
+          "order": 70,
+          "markdownDescription": "**Display:** Show aggregated `+N/-M` line-change totals on stash rows (alongside file counts)."
+        },
+        "stasher.sortBy": {
+          "type": "string",
+          "default": "date",
+          "enum": [
+            "date",
+            "branch",
+            "message",
+            "fileCount",
+            "label"
+          ],
+          "enumDescriptions": [
+            "Sort by creation date",
+            "Sort by branch name",
+            "Sort by stash message",
+            "Sort by file count",
+            "Sort by colour label"
+          ],
+          "order": 80,
+          "markdownDescription": "**Display:** Sort stashes by this field. Pinned stashes always appear first regardless."
+        },
+        "stasher.sortOrder": {
+          "type": "string",
+          "default": "desc",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "enumDescriptions": [
+            "Ascending order",
+            "Descending order"
+          ],
+          "order": 81,
+          "markdownDescription": "**Display:** Sort direction for stash ordering."
         }
       }
     }

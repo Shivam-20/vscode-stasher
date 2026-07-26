@@ -2,10 +2,11 @@ import * as vscode from 'vscode';
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
-const NOTES_KEY        = 'stasher.notes';       // Record<hash, string>
-const PINS_KEY         = 'stasher.pins';         // string[]
-const AUTO_RESTORE_KEY = 'stasher.autoRestore';  // string[]
-const LABELS_KEY       = 'stasher.labels';       // Record<hash, StashLabel>
+const NOTES_KEY         = 'stasher.notes';        // Record<hash, string>
+const PINS_KEY          = 'stasher.pins';          // string[]
+const AUTO_RESTORE_KEY  = 'stasher.autoRestore';   // string[]
+const LABELS_KEY        = 'stasher.labels';        // Record<hash, StashLabel>
+const ARCHIVED_HASHES_KEY = 'stasher.archivedHashes'; // string[]
 
 // ─── Label types ──────────────────────────────────────────────────────────────
 
@@ -126,4 +127,39 @@ export async function setAutoRestore(
     set.delete(hash);
   }
   await context.workspaceState.update(AUTO_RESTORE_KEY, [...set]);
+}
+
+// ─── Stash Archive ─────────────────────────────────────────────────────────────
+
+export function getArchivedHashes(context: vscode.ExtensionContext): Set<string> {
+  return new Set(context.workspaceState.get<string[]>(ARCHIVED_HASHES_KEY, []));
+}
+
+export function isStashArchived(context: vscode.ExtensionContext, hash: string): boolean {
+  return getArchivedHashes(context).has(hash);
+}
+
+export async function archiveStash(
+  context: vscode.ExtensionContext,
+  hash: string
+): Promise<boolean> {
+  const archived = getArchivedHashes(context);
+  if (archived.has(hash)) {
+    return false;
+  }
+  archived.add(hash);
+  await context.workspaceState.update(ARCHIVED_HASHES_KEY, [...archived]);
+  return true;
+}
+
+export async function unarchiveStash(
+  context: vscode.ExtensionContext,
+  hash: string
+): Promise<void> {
+  const archived = getArchivedHashes(context);
+  if (!archived.has(hash)) {
+    return;
+  }
+  archived.delete(hash);
+  await context.workspaceState.update(ARCHIVED_HASHES_KEY, [...archived]);
 }

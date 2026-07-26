@@ -6,6 +6,7 @@ import type * as vscode from 'vscode';
 import {
   getStashNote, setStashNote,
   isStashPinned, pinStash, unpinStash,
+  isStashArchived, archiveStash, unarchiveStash, getArchivedHashes,
   isAutoRestore, setAutoRestore, getAutoRestoreHashes,
 } from '../stashNotes';
 
@@ -117,5 +118,56 @@ describe('stashNotes — autoRestore', () => {
     await setAutoRestore(ctx, 'h1', true);
     await setAutoRestore(ctx, 'h1', false);
     assert.strictEqual(isAutoRestore(ctx, 'h1'), false);
+  });
+});
+
+// ─── Archive tests ────────────────────────────────────────────────────────────
+
+describe('stashNotes — archive', () => {
+  it('not archived by default', () => {
+    const ctx = mockContext();
+    assert.strictEqual(isStashArchived(ctx, 'hash1'), false);
+  });
+
+  it('archive adds hash and returns true for newly archived', async () => {
+    const ctx = mockContext();
+    const changed = await archiveStash(ctx, 'hash1');
+    assert.strictEqual(changed, true);
+    assert.strictEqual(isStashArchived(ctx, 'hash1'), true);
+  });
+
+  it('archive returns false if already archived', async () => {
+    const ctx = mockContext();
+    await archiveStash(ctx, 'hash1');
+    const changed = await archiveStash(ctx, 'hash1');
+    assert.strictEqual(changed, false);
+  });
+
+  it('unarchive removes hash', async () => {
+    const ctx = mockContext();
+    await archiveStash(ctx, 'hash1');
+    await unarchiveStash(ctx, 'hash1');
+    assert.strictEqual(isStashArchived(ctx, 'hash1'), false);
+  });
+
+  it('archiving multiple hashes independently', async () => {
+    const ctx = mockContext();
+    await archiveStash(ctx, 'a1');
+    await archiveStash(ctx, 'b2');
+    assert.strictEqual(isStashArchived(ctx, 'a1'), true);
+    assert.strictEqual(isStashArchived(ctx, 'b2'), true);
+    await unarchiveStash(ctx, 'a1');
+    assert.strictEqual(isStashArchived(ctx, 'a1'), false);
+    assert.strictEqual(isStashArchived(ctx, 'b2'), true);
+  });
+
+  it('getArchivedHashes returns all archived hashes', async () => {
+    const ctx = mockContext();
+    await archiveStash(ctx, 'x');
+    await archiveStash(ctx, 'y');
+    const archived = getArchivedHashes(ctx);
+    assert.strictEqual(archived.size, 2);
+    assert.ok(archived.has('x'));
+    assert.ok(archived.has('y'));
   });
 });

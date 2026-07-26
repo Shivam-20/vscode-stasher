@@ -49,4 +49,25 @@ describe('StashCache', () => {
     cache.pruneCounts(new Set(['other']));
     assert.strictEqual(cache.getFileCount('abc123'), undefined);
   });
+
+  it('stores and retrieves aggregated diff stats', () => {
+    const cache = new StashCache();
+    cache.setDiffStat('abc123', [
+      { file: 'a.ts', added: 5, removed: 2 },
+      { file: 'b.ts', added: 3, removed: 1 },
+    ]);
+    const stat = cache.getDiffStat('abc123');
+    assert.ok(stat);
+    assert.strictEqual(stat!.added, 8);
+    assert.strictEqual(stat!.removed, 3);
+  });
+
+  it('pruneDiffStats removes stale hashes only', () => {
+    const cache = new StashCache();
+    cache.setDiffStat('abc123', [{ file: 'a.ts', added: 1, removed: 0 }]);
+    cache.setDiffStat('def456', [{ file: 'b.ts', added: 2, removed: 0 }]);
+    cache.pruneDiffStats(new Set(['abc123']));
+    assert.ok(cache.getDiffStat('abc123'));
+    assert.strictEqual(cache.getDiffStat('def456'), undefined);
+  });
 });

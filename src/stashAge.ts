@@ -38,3 +38,21 @@ export function isStale(isoDate: string, thresholdDays = 7): boolean {
 export function getStaleStashes(entries: StashEntry[], thresholdDays = 7): StashEntry[] {
   return entries.filter((e) => isStale(e.date, thresholdDays));
 }
+
+/**
+ * Returns stashes that are stale, unpinned, AND not archived.
+ * Used by auto-cleanup (#1) to find candidates for archiving.
+ */
+export function getStaleUnpinnedUnarchivedStashes(
+  entries: StashEntry[],
+  thresholdDays: number,
+  pinnedHashes: Set<string>,
+  archivedHashes: Set<string>,
+): StashEntry[] {
+  return entries.filter(
+    (e) =>
+      isStale(e.date, thresholdDays) &&
+      !pinnedHashes.has(e.hash) &&
+      !archivedHashes.has(e.hash),
+  );
+}

@@ -1,15 +1,16 @@
-import type { StashEntry } from './gitHelper';
+import type { StashEntry, StashStat } from './gitHelper';
 
 type CachedChildren = {
   children: unknown[];
   groupByDir: boolean;
 };
 
-/** In-memory cache for stash file lists and file counts. */
+/** In-memory cache for stash file lists, file counts, and diff stats. */
 export class StashCache {
   private readonly _children = new Map<string, CachedChildren>();
   private readonly _fileCounts = new Map<string, number>();
   private readonly _filePaths = new Map<string, string[]>();
+  private readonly _diffStats = new Map<string, { added: number; removed: number }>();
 
   getChildren(ref: string, groupByDir: boolean): unknown[] | undefined {
     const hit = this._children.get(ref);
@@ -36,6 +37,18 @@ export class StashCache {
     this._fileCounts.set(entry.hash, paths.length);
   }
 
+  /** Returns cached aggregated diff stat for a stash hash, or undefined. */
+  getDiffStat(hash: string): { added: number; removed: number } | undefined {
+    return this._diffStats.get(hash);
+  }
+
+  /** Caches the aggregated diff stat for a stash hash. */
+  setDiffStat(hash: string, stats: StashStat[]): void {
+    const added = stats.reduce((a, s) => a + s.added, 0);
+    const removed = stats.reduce((a, s) => a + s.removed, 0);
+    this._diffStats.set(hash, { added, removed });
+  }
+
   clearChildren(): void {
     this._children.clear();
   }
@@ -56,9 +69,19 @@ export class StashCache {
     }
   }
 
+  /** Removes diff-stats for stashes no longer in the list. */
+  pruneDiffStats(validHashes: Set<string>): void {
+    for (const hash of this._diffStats.keys()) {
+      if (!validHashes.has(hash)) {
+        this._diffStats.delete(hash);
+      }
+    }
+  }
+
   clear(): void {
     this.clearChildren();
     this._fileCounts.clear();
     this._filePaths.clear();
+    this._diffStats.clear();
   }
 }

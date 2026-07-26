@@ -31,6 +31,8 @@ import {
   getStashDiffVsWorkingTree,
   copyFileFromStashToStash,
   findStashByHash,
+  rebaseStash,
+  onDidChangeStashes,
   dispose as disposeGit,
 } from './gitHelper';
 import { StashTreeDataProvider, StashTreeItem, StashFileTreeItem } from './stashProvider';
@@ -42,7 +44,9 @@ import { openHunkPicker, disposeHunkPicker } from './hunkPicker';
 import { StashPeekProvider, peekStashFile } from './peekProvider';
 import {
   getStashNote, setStashNote,
-  isStashPinned, pinStash, unpinStash,
+  isStashPinned, pinStash, unpinStash, getPinnedHashes,
+  isStashArchived, archiveStash, unarchiveStash,
+  getArchivedHashes,
   isAutoRestore, setAutoRestore, getAutoRestoreHashes,
   getStashLabel, setStashLabel, LABEL_OPTIONS,
   type StashLabel,
@@ -51,8 +55,8 @@ import { logger } from './logger';
 import { openTimeline, refreshTimeline } from './timelineView';
 import { statusLabel } from './statusHelpers';
 import { TreeExpansionState } from './treeExpansionState';
-import { getOverlappingFiles } from './conflictPreview';
-import { getStaleStashes } from './stashAge';
+import { getOverlappingFiles, getMergeTreeConflicts } from './conflictPreview';
+import { getStaleStashes, getStaleUnpinnedUnarchivedStashes } from './stashAge';
 import type { StashEntry } from './gitHelper';
 import { Status } from './gitEnums';
 
@@ -73,8 +77,27 @@ async function runStashApplyWithPreview(
     return withConflictHandling(operation);
   }
 
+  // Try merge-tree for detailed conflict preview
+  let detailText = `Stasher: ${overlaps.length} file(s) overlap with local changes and may conflict.`;
+  const repo = getRepository();
+  if (repo) {
+    const api = getAPI();
+    if (api) {
+      const conflicts = getMergeTreeConflicts(api.git.path, repo.rootUri.fsPath, entry.ref);
+      if (conflicts && conflicts.length > 0) {
+        const maxLines = 10;
+        const snippet = conflicts.slice(0, maxLines).join('\n');
+        detailText += `\n\nDetected ${conflicts.length} conflict hunk(s):\n${snippet}`;
+        logger.info('runStashApplyWithPreview: merge-tree found conflicts', {
+          ref: entry.ref, hunkCount: conflicts.length,
+        });
+      }
+    }
+  }
+
   const choice = await vscode.window.showWarningMessage(
-    `Stasher: ${overlaps.length} file(s) overlap with local changes and may conflict.`,
+    detailText,
+    { modal: false },
     'Apply Anyway',
     'Show Overlapping Files',
     'Cancel',
@@ -83,9 +106,7 @@ async function runStashApplyWithPreview(
     return false;
   }
   if (choice === 'Show Overlapping Files') {
-    const repo = getRepository();
-    if (!repo) { return false; }
-    const repoRoot = repo.rootUri.fsPath;
+    const repoRoot = repo?.rootUri.fsPath ?? '';
     const picked = await vscode.window.showQuickPick(
       overlaps.map((f) => ({ label: path.basename(f), description: f, file: f })),
       { title: `${entry.ref}: overlapping files`, placeHolder: 'Select a file to preview diff' },
@@ -116,6 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const treeView = vscode.window.createTreeView('stasher.stashList', {
     treeDataProvider: provider,
     showCollapseAll: true,
+    manageCheckboxStateManually: false,
   });
   context.subscriptions.push(
     treeView.onDidExpandElement((e) => {
@@ -123,6 +145,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     treeView.onDidCollapseElement((e) => {
       provider.expansion.collapse(e.element.id);
+    }),
+    treeView.onDidChangeCheckboxState((e) => {
+      provider.handleCheckboxChange(e.items as Array<[StashTreeItem, vscode.TreeItemCheckboxState]>);
     }),
   );
   context.subscriptions.push(treeView);
@@ -1618,7 +1643,116 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // ── Review stale stashes ────────────────────────────────────────────────────
+  // ── Review stale stashes is registered in the new-features block below ─────
+
+  // ── NEW: Toggle Group By Branch ─────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.toggleGroupByBranch', async () => {
+      const cfg = vscode.workspace.getConfiguration('stasher');
+      const current = cfg.get<boolean>('groupByBranch', false);
+      await cfg.update('groupByBranch', !current, vscode.ConfigurationTarget.Workspace);
+      provider.refresh();
+      syncToggleContext();
+    }),
+    vscode.commands.registerCommand('stasher.toggleGroupByBranchActive', async () => {
+      await vscode.commands.executeCommand('stasher.toggleGroupByBranch');
+    }),
+  );
+
+  // ── NEW: Toggle Group Files by Directory ────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.toggleGroupByDir', async () => {
+      const cfg = vscode.workspace.getConfiguration('stasher');
+      const current = cfg.get<boolean>('groupFilesByDirectory', false);
+      await cfg.update('groupFilesByDirectory', !current, vscode.ConfigurationTarget.Workspace);
+      provider.refresh();
+      syncToggleContext();
+    }),
+    vscode.commands.registerCommand('stasher.toggleGroupByDirActive', async () => {
+      await vscode.commands.executeCommand('stasher.toggleGroupByDir');
+    }),
+  );
+
+  // ── Archive / Unarchive Stash ───────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.archiveStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      await archiveStash(context, item.stashEntry.hash);
+      provider.refresh();
+      logger.info('archiveStash', { ref: item.stashEntry.ref });
+    }),
+    vscode.commands.registerCommand('stasher.unarchiveStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      await unarchiveStash(context, item.stashEntry.hash);
+      provider.refresh();
+      logger.info('unarchiveStash', { ref: item.stashEntry.ref });
+    }),
+    vscode.commands.registerCommand('stasher.toggleArchiveFilter', async () => {
+      provider.toggleShowArchived();
+      void vscode.commands.executeCommand('setContext', 'stasher.showArchived', provider.showArchived);
+      updateSidebarChrome();
+    }),
+  );
+
+  // ── Stash TTL / Auto-Cleanup ───────────────────────────────────────────────
+  let lastArchivedCount = 0;
+
+  /** Shared helper: finds stale stashes and archives them. Returns count newly archived. */
+  async function archiveStaleStashes(): Promise<number> {
+    const threshold = provider.staleThresholdDays;
+    const pinned = getPinnedHashes(context);
+    const archived = getArchivedHashes(context);
+    const stale = getStaleUnpinnedUnarchivedStashes(
+      listStashes(), threshold, pinned, archived,
+    );
+    if (stale.length === 0) {
+      return 0;
+    }
+    let newlyArchived = 0;
+    for (const s of stale) {
+      const changed = await archiveStash(context, s.hash);
+      if (changed) { newlyArchived++; }
+    }
+    return newlyArchived;
+  }
+
+  async function runCleanup(): Promise<void> {
+    if (!vscode.workspace.getConfiguration('stasher').get<boolean>('autoCleanupStale', false)) {
+      return;
+    }
+    const newlyArchived = await archiveStaleStashes();
+    if (newlyArchived > 0 && newlyArchived !== lastArchivedCount) {
+      lastArchivedCount = newlyArchived;
+      void vscode.window.showInformationMessage(
+        `Stasher: Archived ${newlyArchived} stale stash${newlyArchived !== 1 ? 'es' : ''}.`,
+      );
+    }
+    provider.refresh();
+  }
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.cleanupStaleStashes', async () => {
+      const archivedCount = await archiveStaleStashes();
+      if (archivedCount === 0) {
+        void vscode.window.showInformationMessage(`Stasher: No stale stashes to archive.`);
+        return;
+      }
+      provider.refresh();
+      void vscode.window.showInformationMessage(
+        `Stasher: Archived ${archivedCount} stale stash${archivedCount !== 1 ? 'es' : ''}.`,
+      );
+    }),
+  );
+
+  // Run auto-cleanup on activation
+  void runCleanup();
+
+  // Subscribe to stash changes for auto-cleanup re-evaluation
+  context.subscriptions.push(
+    onDidChangeStashes(() => { void runCleanup(); }),
+  );
+
+  // ── Review stale stashes (with Archive action) ─────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('stasher.reviewStaleStashes', async () => {
       const threshold = provider.staleThresholdDays;
@@ -1645,10 +1779,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!picks || picks.length === 0) { return; }
 
       const action = await vscode.window.showQuickPick(
-        ['Delete selected', 'Export selected as patches', 'Pin selected'],
+        ['Archive selected', 'Delete selected', 'Export selected as patches', 'Pin selected'],
         { title: 'Action for selected stale stashes' },
       );
       if (!action) { return; }
+
+      if (action === 'Archive selected') {
+        let archivedCount = 0;
+        for (const p of picks) {
+          const changed = await archiveStash(context, p.stash.hash);
+          if (changed) { archivedCount++; }
+        }
+        provider.refresh();
+        void vscode.window.showInformationMessage(`Stasher: Archived ${archivedCount} stash(es).`);
+        return;
+      }
 
       if (action === 'Delete selected') {
         const confirm = await vscode.window.showWarningMessage(
@@ -1690,31 +1835,174 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // ── NEW: Toggle Group By Branch ─────────────────────────────────────────────
+  // ── Multi-select bulk actions ─────────────────────────────────────────────
   context.subscriptions.push(
-    vscode.commands.registerCommand('stasher.toggleGroupByBranch', async () => {
-      const cfg = vscode.workspace.getConfiguration('stasher');
-      const current = cfg.get<boolean>('groupByBranch', false);
-      await cfg.update('groupByBranch', !current, vscode.ConfigurationTarget.Workspace);
-      provider.refresh();
-      syncToggleContext();
+    vscode.commands.registerCommand('stasher.applySelectedStashes', async () => {
+      const checked = provider.getCheckedStashes();
+      if (checked.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No stashes checked — check stashes in the Stashes view first.');
+        return;
+      }
+      for (const entry of checked) {
+        const fresh = findStashByHash(entry.hash);
+        if (!fresh) { continue; }
+        const ok = await runStashApplyWithPreview(fresh, provider, workingProvider, () => applyStash(fresh!.index));
+        provider.refresh();
+        workingProvider.refresh();
+        if (!ok) { break; }
+      }
     }),
-    vscode.commands.registerCommand('stasher.toggleGroupByBranchActive', async () => {
-      await vscode.commands.executeCommand('stasher.toggleGroupByBranch');
+    vscode.commands.registerCommand('stasher.dropSelectedStashes', async () => {
+      const checked = provider.getCheckedStashes();
+      if (checked.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No stashes checked — check stashes in the Stashes view first.');
+        return;
+      }
+      const answer = await vscode.window.showWarningMessage(
+        `Delete ${checked.length} checked stash(es)? This cannot be undone.`,
+        { modal: true },
+        'Delete',
+      );
+      if (answer !== 'Delete') { return; }
+      // Drop by hash, re-fetching list after each drop
+      const hashes = checked.map((s) => s.hash);
+      for (const hash of hashes) {
+        const fresh = findStashByHash(hash);
+        if (!fresh) { continue; }
+        await dropStash(fresh.index);
+        provider.refresh();
+      }
+    }),
+    vscode.commands.registerCommand('stasher.duplicateSelectedStashes', async () => {
+      const checked = provider.getCheckedStashes();
+      if (checked.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No stashes checked.');
+        return;
+      }
+      for (const entry of checked) {
+        const fresh = findStashByHash(entry.hash);
+        if (!fresh) { continue; }
+        const completed = await withConflictHandling(() => duplicateStash(fresh!));
+        provider.refresh();
+        workingProvider.refresh();
+        if (!completed) { break; }
+      }
+    }),
+    vscode.commands.registerCommand('stasher.exportSelectedStashes', async () => {
+      const checked = provider.getCheckedStashes();
+      if (checked.length === 0) {
+        void vscode.window.showInformationMessage('Stasher: No stashes checked.');
+        return;
+      }
+      const folderUris = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        title: 'Select Folder to Export Patches',
+      });
+      if (!folderUris || folderUris.length === 0) { return; }
+      const outDir = folderUris[0].fsPath;
+      let exported = 0;
+      for (const entry of checked) {
+        const defaultName = `stash_${entry.index}.patch`;
+        const filePath = path.join(outDir, defaultName);
+        let content: string;
+        try {
+          content = exportStashAsPatch(entry);
+        } catch {
+          continue;
+        }
+        if (fs.existsSync(filePath)) {
+          const answer = await vscode.window.showWarningMessage(
+            `Stasher: ${defaultName} already exists.`,
+            { modal: true },
+            'Overwrite', 'Skip',
+          );
+          if (answer === 'Skip') { continue; }
+          if (answer !== 'Overwrite') { break; }
+        }
+        try {
+          fs.writeFileSync(filePath, content, { encoding: 'utf8' });
+          exported++;
+        } catch { /* skip */ }
+      }
+      void vscode.window.showInformationMessage(`Stasher: Exported ${exported} patch(es).`);
     }),
   );
 
-  // ── NEW: Toggle Group Files by Directory ────────────────────────────────────
+  // ── Rebase Stash ───────────────────────────────────────────────────────────
   context.subscriptions.push(
-    vscode.commands.registerCommand('stasher.toggleGroupByDir', async () => {
-      const cfg = vscode.workspace.getConfiguration('stasher');
-      const current = cfg.get<boolean>('groupFilesByDirectory', false);
-      await cfg.update('groupFilesByDirectory', !current, vscode.ConfigurationTarget.Workspace);
-      provider.refresh();
-      syncToggleContext();
+    vscode.commands.registerCommand('stasher.rebaseStash', async (item: StashTreeItem) => {
+      if (!(item instanceof StashTreeItem)) { return; }
+      try {
+        const completed = await withConflictHandling(() => rebaseStash(item.stashEntry));
+        provider.refresh();
+        workingProvider.refresh();
+        if (!completed) { return; }
+        void vscode.window.showInformationMessage(
+          `Stasher: Rebased "${item.stashEntry.ref}" onto current HEAD.`,
+        );
+        logger.info('rebaseStash', { ref: item.stashEntry.ref });
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Stasher: Rebase failed — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }),
-    vscode.commands.registerCommand('stasher.toggleGroupByDirActive', async () => {
-      await vscode.commands.executeCommand('stasher.toggleGroupByDir');
+  );
+
+  // ── Auto-restore on Branch Checkout ────────────────────────────────────────
+  const repoForCheckout = getRepository();
+  let prevBranch: string | undefined = repoForCheckout?.state.HEAD?.name;
+
+  function setupBranchCheckoutListener(): void {
+    const r = getRepository();
+    if (!r) { return; }
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    context.subscriptions.push(
+      r.state.onDidChange(() => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        debounceTimer = setTimeout(() => {
+          if (!vscode.workspace.getConfiguration('stasher').get<boolean>('autoRestoreOnCheckout', false)) {
+            return;
+          }
+          const cur = r.state.HEAD?.name;
+          if (!cur || cur === prevBranch) { return; }
+          prevBranch = cur;
+          const stashes = listStashes();
+          const matching = stashes.filter((s) => s.branch === cur);
+          if (matching.length === 0) { return; }
+          for (const stash of matching) {
+            void vscode.window.showInformationMessage(
+              `Stasher: Stash found for branch "${cur}" — apply “${stash.message}”?`,
+              'Apply', 'Skip',
+            ).then(async (answer) => {
+              if (answer === 'Apply') {
+                const fresh = findStashByHash(stash.hash);
+                if (!fresh) { return; }
+                await withConflictHandling(() => applyStash(fresh.index));
+                provider.refresh();
+                workingProvider.refresh();
+              }
+            });
+          }
+        }, 500);
+      }),
+    );
+  }
+
+  setupBranchCheckoutListener();
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('stasher.enableAutoRestoreOnCheckout', async () => {
+      const cfg = vscode.workspace.getConfiguration('stasher');
+      await cfg.update('autoRestoreOnCheckout', true, vscode.ConfigurationTarget.Workspace);
+      void vscode.window.showInformationMessage('Stasher: Auto-restore on checkout enabled.');
+    }),
+    vscode.commands.registerCommand('stasher.disableAutoRestoreOnCheckout', async () => {
+      const cfg = vscode.workspace.getConfiguration('stasher');
+      await cfg.update('autoRestoreOnCheckout', false, vscode.ConfigurationTarget.Workspace);
+      void vscode.window.showInformationMessage('Stasher: Auto-restore on checkout disabled.');
     }),
   );
 

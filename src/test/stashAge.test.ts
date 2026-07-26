@@ -2,7 +2,7 @@
  * Tests for stashAge utilities (pure, no VS Code dependency).
  */
 import assert from 'assert';
-import { relativeTime, isStale, getStaleStashes } from '../stashAge';
+import { relativeTime, isStale, getStaleStashes, getStaleUnpinnedUnarchivedStashes } from '../stashAge';
 
 function iso(msAgo: number): string {
   return new Date(Date.now() - msAgo).toISOString();
@@ -82,5 +82,24 @@ describe('getStaleStashes()', () => {
     const stale = getStaleStashes(entries, 7);
     assert.strictEqual(stale.length, 1);
     assert.strictEqual(stale[0].hash, 'b');
+  });
+});
+
+describe('getStaleUnpinnedUnarchivedStashes()', () => {
+  const entries = [
+    { index: 0, ref: 'stash@{0}', hash: 'fresh', branch: 'main', message: 'fresh', date: iso(60_000) },
+    { index: 1, ref: 'stash@{1}', hash: 'oldPin', branch: 'main', message: 'old pinned', date: iso(10 * 24 * 60 * 60 * 1000) },
+    { index: 2, ref: 'stash@{2}', hash: 'oldArch', branch: 'main', message: 'old archived', date: iso(10 * 24 * 60 * 60 * 1000) },
+    { index: 3, ref: 'stash@{3}', hash: 'oldOk', branch: 'main', message: 'old clean', date: iso(10 * 24 * 60 * 60 * 1000) },
+  ];
+
+  it('excludes pinned and archived stashes', () => {
+    const result = getStaleUnpinnedUnarchivedStashes(
+      entries, 7,
+      new Set(['oldPin']),
+      new Set(['oldArch']),
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].hash, 'oldOk');
   });
 });

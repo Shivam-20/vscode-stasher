@@ -983,6 +983,80 @@ export async function duplicateStash(entry: StashEntry): Promise<void> {
   }
 }
 
+// ─── Rebase stash onto HEAD ───────────────────────────────────────────────────
+
+/**
+ * Rebases a stash onto the current HEAD by:
+ * 1. Checking that the working tree is clean
+ * 2. Applying the stash (keep it in the list)
+ * 3. Re-stashing with the same message
+ * 4. Dropping the old stash by hash
+ *
+ * This updates the stash's base to the current HEAD, reducing conflicts on
+ * subsequent apply/pop.
+ */
+export async function rebaseStash(entry: StashEntry): Promise<void> {
+  if (!_api || !_repo) {
+    throw new Error('No repository open');
+  }
+
+  const gitPath = _api.git.path;
+  const cwd = _repo.rootUri.fsPath;
+
+  // 1. Verify clean working tree
+  const statusResult = spawnSync(
+    gitPath,
+    ['status', '--porcelain', '--untracked-files=no'],
+    { cwd, encoding: 'utf8' },
+  );
+  if (statusResult.status !== 0) {
+    throw new Error('Failed to check working tree status');
+  }
+  if (statusResult.stdout?.trim()) {
+    throw new Error(
+      'Working tree has changes. Commit, stash, or discard them before rebasing a stash.',
+    );
+  }
+
+  // 2. Apply stash (keep it)
+  await _repo.applyStash(entry.index);
+
+  // 3. Re-stash with the same message
+  //    If this fails, throw — changes are left in the working tree for manual recovery
+  try {
+    await _repo.createStash({
+      message: entry.message,
+      includeUntracked: true,
+    });
+  } catch (err) {
+    throw new Error(
+      `Re-stash failed — your changes are now in the working tree. ` +
+      `Stash them manually to recover. Original error: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  // 4. Drop the OLD stash by re-resolving its hash
+  //    After re-stash, the old entry shifted up by 1; findStashByHash
+  //    returns its *current* (shifted) index, so drop it directly.
+  const freshEntry = findStashByHash(entry.hash);
+  if (freshEntry) {
+    const dropResult = spawnSync(
+      gitPath,
+      ['stash', 'drop', `stash@{${freshEntry.index}}`],
+      { cwd, encoding: 'utf8' },
+    );
+    if (dropResult.status !== 0) {
+      void vscode.window.showWarningMessage(
+        `Stasher: Rebase stash created, but could not drop the old one (stash@{${
+          freshEntry.index
+        }}). Remove it manually.`,
+      );
+    }
+  }
+}
+
 // ─── Import patch file as stash ───────────────────────────────────────────────
 
 /**
